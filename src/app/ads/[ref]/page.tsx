@@ -450,7 +450,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                   <ul className="mt-2 space-y-2">
                     {addedWording.map((t, i) => (
                       <li key={i} className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-                        <q className="font-medium">{t}</q>. The number check has nothing to compare this with. Read it
+                        <q className="font-medium">{t.replace(/[.!?]+$/, "")}</q>. The number check has nothing to compare this with. Read it
                         before you decide.
                       </li>
                     ))}

@@ -112,6 +112,48 @@ describe("reviewing a revision", () => {
     });
   });
 
+  describe("an unchanged figure elsewhere in the ad never closes a request", () => {
+    const BEFORE = "Rates from 6.99% APR. Maximum APR is 35.99%.";
+    const request = { anchorText: "6.99% APR", body: draftRequest(analyzeCopy(BEFORE, terms).checks[0]) };
+
+    it("the minimum is still wrong inside a range, and the unchanged maximum is not evidence", () => {
+      const r = reviewRevision(BEFORE, "Our APR range is 6.99\u201335.99%. Maximum APR is 35.99%.", [request], terms);
+      expect(r.outcomes[0].outcome).toBe("changed");
+      expect(r.outcomes[0].detail).toBe(
+        "The original wording changed. Confirm the revision addresses your request: the number check cannot verify the new wording.",
+      );
+      expect(r.outcomes[0].detail).not.toContain("35.99");
+    });
+
+    it("a direct correction of the flagged figure still earns Resolved", () => {
+      const r = reviewRevision(BEFORE, "Rates from 8.99% APR. Maximum APR is 35.99%.", [request], terms);
+      expect(r.outcomes[0]).toMatchObject({ outcome: "resolved", detail: 'The ad now says "8.99% APR", which matches the offer.' });
+    });
+
+    it("deleting the flagged sentence and leaving the maximum is a removal, not a correction", () => {
+      const r = reviewRevision(BEFORE, "Maximum APR is 35.99%.", [request], terms);
+      expect(r.outcomes[0]).toMatchObject({ outcome: "resolved", detail: "The claim was removed, and nothing was added in its place." });
+    });
+
+    it("rewording around the same wrong figure does not pass", () => {
+      for (const next of ["Borrow from 6.99%. Maximum APR is 35.99%.", "Rates of 6.99 to 35.99% APR. Maximum APR is 35.99%.", "As low as 6.99. Maximum APR is 35.99%."]) {
+        const out = reviewRevision(BEFORE, next, [request], terms).outcomes[0].outcome;
+        expect(["changed", "unchanged", "not_resolved"], next).toContain(out);
+      }
+    });
+
+    it("a new matching figure beside a new unreadable one does not pass", () => {
+      const r = reviewRevision(BEFORE, "Rates from 8.99% APR, or 5.99-7.99% for some. Maximum APR is 35.99%.", [request], terms);
+      expect(r.outcomes[0].outcome).toBe("changed");
+    });
+
+    it("the same holds for a request in the reviewer's own words: no check-passes label either", () => {
+      const own = { anchorText: "6.99% APR", body: "Fix the minimum rate." };
+      const r = reviewRevision(BEFORE, "Our APR range is 6.99\u201335.99%. Maximum APR is 35.99%.", [own], terms);
+      expect(r.outcomes[0].outcome).toBe("changed");
+    });
+  });
+
   it("says so when the flagged words are still there", () => {
     const r = reviewRevision(V1, V1 + " Apply today.", [aprRequest], terms);
     expect(r.outcomes[0].outcome).toBe("unchanged");

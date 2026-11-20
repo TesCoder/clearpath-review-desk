@@ -1,7 +1,25 @@
 // What a reviewer needs to know about a revision without rereading the ad:
 // did it answer each earlier request, and did it bring in anything new?
+//
+// Decision-logic rounds: 3 (llm-first-decision-architecture.mdc section 6).
+// Decision counted: whether an earlier request is shown as "Resolved".
+// Every round so far has narrowed it: none added a way to be resolved.
+//   Round 1, 2026-11-20: a reworded false claim ("we waive the fee") was
+//     marked resolved. Narrowed to a verified figure or a pure deletion.
+//   Round 2, 2026-11-20: a two-part request was marked resolved when one part
+//     was fixed. Narrowed to the app's own drafted, single-claim request.
+//   Round 3, 2026-11-20: an unchanged figure elsewhere in the ad was accepted
+//     as the correction. Narrowed to a matching figure that is new in the
+//     version, with the flagged figure gone and nothing new held.
+// The only two ways a request is "Resolved" (both need the app's own drafted
+// request, sent unedited):
+//   A. the flagged figure is gone, a matching figure of the same kind is new
+//      in this version, and the version brought in nothing the check held;
+//   B. the flagged claim was deleted and nothing at all was added.
+// Everything else asks the reviewer to confirm. Do not add a third way
+// without the approver's word.
 
-import { analyzeCopy, draftRequest, type Check, type ClaimKind, type OfferTerms } from "./checks";
+import { analyzeCopy, draftRequest, normalizeWithMap, type Check, type ClaimKind, type OfferTerms } from "./checks";
 import { diffWords } from "./diff";
 
 export type PriorRequest = { anchorText: string | null; body: string };
@@ -26,6 +44,12 @@ const family = (kind: ClaimKind) => (kind === "no_fee" ? "fee" : kind);
 // Held items have no value to tell them apart, so they are compared by their words.
 const signature = (c: Check) => (c.claim.kind === "unclassified" ? `held:${c.claim.quote}` : `${c.claim.kind}:${c.claim.value}`);
 
+/** Every number written in digits in the text, after the same clean-up the number check uses. */
+function numbersIn(text: string): number[] {
+  const { norm } = normalizeWithMap(text);
+  return (norm.match(/\d+(?:[.,]\d+)?/g) ?? []).map((t) => Number(t.replace(",", ".")));
+}
+
 export function reviewRevision(
   previousBody: string,
   currentBody: string,
@@ -34,6 +58,8 @@ export function reviewRevision(
 ): { outcomes: RequestOutcome[]; newClaims: Check[] } {
   const before = analyzeCopy(previousBody, terms);
   const after = analyzeCopy(currentBody, terms);
+
+  const seenBefore = new Set(before.checks.map(signature));
 
   // True when the revision only took words out.
   const onlyRemovals = !diffWords(previousBody, currentBody).some((p) => p.type === "added" && p.text.trim() !== "");
@@ -70,7 +96,21 @@ export function reviewRevision(
       // drafted request, sent unedited: it is about this claim and nothing else.
       const onlyAboutThisClaim = request.body.trim() === draftRequest(flagged);
       const label = fam === "apr" ? "rate" : "fee";
-      const verified = sameFamily.find((c) => c.status === "ok");
+      // What counts as a verified correction. All of these, or it is not one:
+      //   1. no mismatch of this kind remains (checked just above);
+      //   2. the flagged figure is gone from the ad, in any form;
+      //   3. a matching figure of this kind is new in this version. A figure
+      //      that was already in the ad and did not change proves nothing
+      //      about the one that was flagged;
+      //   4. this version brought in nothing the number check had to hold for
+      //      the reviewer (a range, an unreadable figure, fee wording).
+      const flaggedValue = flagged.claim.value;
+      const figureGone =
+        flaggedValue === null ||
+        (!numbersIn(currentBody).includes(flaggedValue) && !after.claims.some((c) => c.value === flaggedValue));
+      const broughtInHeld = after.checks.some((c) => c.claim.kind === "unclassified" && !seenBefore.has(signature(c)));
+      const verified =
+        figureGone && !broughtInHeld ? sameFamily.find((c) => c.status === "ok" && !seenBefore.has(signature(c))) : undefined;
       if (verified) {
         const fact = `The ad now says "${verified.claim.quote}", which matches the offer.`;
         return onlyAboutThisClaim
@@ -103,8 +143,7 @@ export function reviewRevision(
     };
   });
 
-  const seen = new Set(before.checks.map(signature));
-  const newClaims = after.checks.filter((c) => !seen.has(signature(c)));
+  const newClaims = after.checks.filter((c) => !seenBefore.has(signature(c)));
   return { outcomes, newClaims };
 }
 
