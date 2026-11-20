@@ -261,6 +261,7 @@ export async function submitRevision(_prev: FormState, formData: FormData): Prom
   const ref = text(formData.get("ref")).slice(0, 20);
   const body = cleanBody(text(formData.get("body")));
   const note = text(formData.get("note")).trim();
+  const baseFingerprint = text(formData.get("baseFingerprint")).slice(0, 64);
 
   if ((await getRole()) !== "marketer") return { error: "Switch to the Marketer view to change an ad." };
   if (!body) return { error: "The ad copy cannot be empty." };
@@ -271,6 +272,11 @@ export async function submitRevision(_prev: FormState, formData: FormData): Prom
   let error: string | null;
   try {
     error = await withLockedAd(workspaceId, ref, async (asset, tx) => {
+      // An edit is made to a particular version. If another tab has already
+      // sent a newer one, saving this would quietly bring back the old words.
+      if (baseFingerprint !== asset.latest.fingerprint) {
+        return `Version ${asset.latest.number} of this ad was submitted after you started this edit. Reload the page and edit the current text.`;
+      }
       if (body === asset.latest.body) return `The text is the same as version ${asset.latest.number}. Change it first.`;
       if (asset.versions.length >= MAX_VERSIONS_PER_AD) return "This ad has reached the demo's version limit.";
       const number = asset.latest.number + 1;

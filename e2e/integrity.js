@@ -94,6 +94,17 @@ const approvals = async (page) => ((await page.innerText('section:has(h2:has-tex
     await p.fill('textarea[name=body]', 'Rates from 8.99% APR. 0% origination fee.');
     const orig = await p.innerText('[aria-live=polite]');
     ok('a 0% origination fee still flags, with its fix', /lists a 2\.00% origination fee/.test(orig) && (await p.$$('[aria-live=polite] button:has-text("Change to: 2%")')).length === 1);
+    // A stated maximum is not the offer's lowest rate: no edit is offered, and the old edit's result is not a match.
+    await p.fill('textarea[name=body]', 'The maximum APR is 6.99%.');
+    const maxLow = await p.innerText('[aria-live=polite]');
+    ok('a wrong stated maximum flags with no "Change to" button', /states a maximum APR of 6\.99%/.test(maxLow) && (await p.$$('[aria-live=polite] button:has-text("Change to")')).length === 0);
+    await p.fill('textarea[name=body]', 'The maximum APR is 8.99%.');
+    const maxEdited = await p.innerText('[aria-live=polite]');
+    ok('"The maximum APR is 8.99%" is held, not passed', /states a maximum APR of 8\.99%/.test(maxEdited) && !/is within the offer/.test(maxEdited));
+    await p.fill('textarea[name=body]', 'Interest rate 6.99%, APR 8.99%.');
+    ok('an interest rate beside an APR gets no "Change to" button', (await p.$$('[aria-live=polite] button:has-text("Change to")')).length === 0);
+    await p.fill('textarea[name=body]', 'Rates from 6.99% APR.');
+    ok('a stated lowest rate still flags, with its edit', (await p.$$('[aria-live=polite] button:has-text("Change to: 8.99% APR")')).length === 1);
     const options = await p.$$eval('select[name=offerId] option', (els) => els.map((e) => ({ text: e.textContent.trim(), disabled: e.disabled })));
     console.log('offers:', JSON.stringify(options));
     ok('only the personal loan can be chosen', options.filter((o) => !o.disabled).length === 1 && /personal loan/i.test(options.find((o) => !o.disabled).text));
@@ -119,6 +130,32 @@ const approvals = async (page) => ((await page.innerText('section:has(h2:has-tex
     } else {
       ok('queue shows the AI read for AD-1036 beside the offer check', /AI: (\d+ to read|incomplete)/.test(cell) && /No offer-check flags/.test(flags));
     }
+    await ctx.close();
+  }
+
+  // 6. Two marketer tabs start from the same version. The second save is refused, so it cannot bring back old words.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1360, height: 900 } });
+    const a = await ctx.newPage(); watch(a, problems);
+    await a.goto(BASE + '/ads/AD-1041');
+    await a.click('button[type=submit]:has-text("Request changes")');
+    await a.waitForSelector('text=Request sent');
+    await a.click('button:has-text("Open AD-1041 as the marketer")');
+    await a.waitForSelector('text=Fix the ad and send it back');
+    const b = await ctx.newPage(); watch(b, problems);
+    await b.goto(BASE + '/ads/AD-1041');
+    await b.waitForSelector('text=Fix the ad and send it back');
+    await a.fill('textarea[name=body]', 'Compare ClearPath personal loans. Rates from 8.99% APR.');
+    await a.click('button:has-text("Send version 3 for review")');
+    await a.waitForSelector('text=Sent for review as version 3');
+    await b.fill('textarea[name=body]', 'Compare ClearPath personal loans. Rates from 6.99% APR. A 2% origination fee applies.');
+    await b.click('button:has-text("Send version 3 for review")');
+    await b.waitForSelector('form [role=alert]');
+    const refused = await b.innerText('form [role=alert]');
+    console.log('second marketer tab:', refused);
+    ok('an edit started from an older version is refused', /was submitted after you started this edit/.test(refused));
+    await a.goto(BASE + '/ads/AD-1041');
+    ok('the first tab keeps its version 3, and no version 4 was created', /Version 3/.test(await a.innerText('main')) && !/Version 4/.test(await a.innerText('main')));
     await ctx.close();
   }
 

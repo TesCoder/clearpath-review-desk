@@ -27,8 +27,8 @@ const feeRequest = { anchorText: "No origination fee", body: draftRequest(analyz
 describe("reviewing a revision", () => {
   it("version 2 resolves the APR request and brings in a new unsupported claim", () => {
     const r = reviewRevision(V1, V2, [aprRequest], terms);
-    expect(r.outcomes[0].outcome).toBe("resolved");
-    expect(r.outcomes[0].detail).toBe('The ad now says "8.99% APR", which matches the offer.');
+    expect(r.outcomes[0].outcome).toBe("requested_present");
+    expect(r.outcomes[0].detail).toBe("6.99% APR \u2192 8.99% APR. That is the figure the request asked for.");
     expect(r.newClaims.map((c) => [c.claim.quote, c.status])).toEqual([
       ["8.99% APR", "ok"],
       ["No origination fee", "mismatch"],
@@ -37,7 +37,7 @@ describe("reviewing a revision", () => {
 
   it("version 3 resolves the fee request by removing the claim, with nothing new", () => {
     const r = reviewRevision(V2, V3, [feeRequest], terms);
-    expect(r.outcomes[0]).toMatchObject({ outcome: "resolved", detail: "The claim was removed, and nothing was added in its place." });
+    expect(r.outcomes[0]).toMatchObject({ outcome: "removed", detail: "The claim was removed, and nothing was added in its place." });
     expect(r.newClaims).toEqual([]);
   });
 
@@ -51,7 +51,7 @@ describe("reviewing a revision", () => {
   it("the same request is resolved when the sentence is deleted, and not when it is reworded", () => {
     const deleted = reviewRevision(V2, V3, [feeRequest], terms).outcomes[0].outcome;
     const reworded = reviewRevision(V2, V3 + " Fee-free for all.", [feeRequest], terms).outcomes[0].outcome;
-    expect([deleted, reworded]).toEqual(["resolved", "changed"]);
+    expect([deleted, reworded]).toEqual(["removed", "changed"]);
   });
 
   it("a removed claim with other words added elsewhere asks for confirmation", () => {
@@ -61,7 +61,10 @@ describe("reviewing a revision", () => {
 
   it("a corrected fee that the offer confirms is resolved", () => {
     const r = reviewRevision(V2, V3 + " A 2% origination fee applies.", [feeRequest], terms);
-    expect(r.outcomes[0]).toMatchObject({ outcome: "resolved", detail: 'The ad now says "2%", which matches the offer.' });
+    expect(r.outcomes[0]).toMatchObject({
+      outcome: "requested_present",
+      detail: "No origination fee \u2192 2%. That is the figure the request asked for.",
+    });
   });
 
   it("the drafted requests are about one claim each", () => {
@@ -125,14 +128,43 @@ describe("reviewing a revision", () => {
       expect(r.outcomes[0].detail).not.toContain("35.99");
     });
 
-    it("a direct correction of the flagged figure still earns Resolved", () => {
+    it("a direct correction to the requested figure is reported as exactly that", () => {
       const r = reviewRevision(BEFORE, "Rates from 8.99% APR. Maximum APR is 35.99%.", [request], terms);
-      expect(r.outcomes[0]).toMatchObject({ outcome: "resolved", detail: 'The ad now says "8.99% APR", which matches the offer.' });
+      expect(r.outcomes[0]).toMatchObject({
+        outcome: "requested_present",
+        detail: "6.99% APR \u2192 8.99% APR. That is the figure the request asked for.",
+      });
+    });
+
+    it("a different figure inside the range is not the requested one", () => {
+      const r = reviewRevision(BEFORE, "Rates from 12.49% APR. Maximum APR is 35.99%.", [request], terms);
+      expect(r.outcomes[0].outcome).toBe("changed");
+      expect(r.outcomes[0].detail).toBe(
+        "6.99% APR \u2192 12.49% APR. The request asked for 8.99%. The new figure is within the offer, but it is not the one requested. Confirm it answers your request.",
+      );
+    });
+
+    it("deleting the letters APR and leaving the figure is not a removal", () => {
+      const from = "Personal loans from 6.99% APR today.";
+      const drafted = { anchorText: "6.99% APR", body: draftRequest(analyzeCopy(from, terms).checks[0]) };
+      const r = reviewRevision(from, "Personal loans from 6.99% today.", [drafted], terms);
+      expect(r.outcomes[0].outcome).toBe("changed");
+      expect(r.outcomes[0].detail).not.toContain("removed");
+    });
+
+    it("no outcome is ever called resolved", () => {
+      const all = [
+        reviewRevision(BEFORE, "Rates from 8.99% APR. Maximum APR is 35.99%.", [request], terms),
+        reviewRevision(BEFORE, "Maximum APR is 35.99%.", [request], terms),
+        reviewRevision(BEFORE, "Rates from 12.49% APR. Maximum APR is 35.99%.", [request], terms),
+      ].map((r) => r.outcomes[0]);
+      expect(all.map((o) => o.outcome)).toEqual(["requested_present", "removed", "changed"]);
+      for (const o of all) expect(`${o.outcome} ${o.detail}`).not.toMatch(/resolved/i);
     });
 
     it("deleting the flagged sentence and leaving the maximum is a removal, not a correction", () => {
       const r = reviewRevision(BEFORE, "Maximum APR is 35.99%.", [request], terms);
-      expect(r.outcomes[0]).toMatchObject({ outcome: "resolved", detail: "The claim was removed, and nothing was added in its place." });
+      expect(r.outcomes[0]).toMatchObject({ outcome: "removed", detail: "The claim was removed, and nothing was added in its place." });
     });
 
     it("rewording around the same wrong figure does not pass", () => {

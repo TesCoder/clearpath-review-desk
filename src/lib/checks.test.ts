@@ -289,3 +289,55 @@ describe("a fee figure is compared only when the ad names the origination fee", 
     ]);
   });
 });
+
+// Round 5: an edit is suggested only when the wording says which offer field the figure is.
+describe("a suggested edit needs the wording to identify the offer field", () => {
+  const one = (text: string) => analyzeCopy(text, winter).checks;
+
+  it("a stated lowest rate below the floor still flags, with its edit", () => {
+    for (const text of ["Rates from 6.99% APR.", "APR as low as 6.99%.", "Rates starting at 6.99% APR."]) {
+      const c = one(text)[0];
+      expect([c.status, c.suggestion?.includes("8.99")], text).toEqual(["mismatch", true]);
+    }
+  });
+
+  it("a stated maximum below the floor flags with no edit, and the corrected-looking result is never a match", () => {
+    const wrong = one("The maximum APR is 6.99%.")[0];
+    expect(wrong.status).toBe("mismatch");
+    expect(wrong.suggestion).toBeNull();
+    expect(wrong.message).toBe("The ad states a maximum APR of 6.99%. The APR range on the Winter Personal Loan offer from Nov 1, 2026 is 8.99% to 35.99%.");
+    // What the old one-click edit produced:
+    const edited = analyzeCopy("The maximum APR is 8.99%.", winter);
+    expect(edited.checks[0].status).toBe("needs_reviewer");
+    expect(edited.openFlags).toBe(1);
+  });
+
+  it("a stated maximum inside the range is held; the offer's own maximum matches", () => {
+    expect(one("The maximum APR is 12.99%.")[0].status).toBe("needs_reviewer");
+    expect(one("APR up to 12.99%.")[0].status).toBe("needs_reviewer");
+    expect(one("Maximum APR is 35.99%.")[0].status).toBe("ok");
+    expect(one("Rates from 8.99% to 35.99% APR.").map((c) => c.status)).toEqual(["ok", "ok"]);
+  });
+
+  it("a stated lowest rate that is not the offer's is held", () => {
+    expect(one("Our lowest rate is 12.49% APR.")[0].status).toBe("needs_reviewer");
+    expect(one("Everyone qualifies for our lowest rate of 8.99% APR.")[0].status).toBe("ok");
+  });
+
+  it("a low rate with no lead-in flags, with no edit", () => {
+    const c = one("Your rate could be 6.99% APR.")[0];
+    expect([c.status, c.suggestion]).toEqual(["mismatch", null]);
+  });
+
+  it("a rate above the ceiling flags, with no edit", () => {
+    const c = one("APR up to 39.99%.")[0];
+    expect([c.status, c.suggestion]).toEqual(["mismatch", null]);
+  });
+
+  it("an interest rate beside an APR is held, and nothing is offered as an edit", () => {
+    const all = one("Interest rate 6.99%, APR 8.99%.");
+    expect(all.every((c) => c.suggestion === null)).toBe(true);
+    expect(all.some((c) => c.status === "mismatch")).toBe(false);
+    expect(all.some((c) => c.status === "needs_reviewer")).toBe(true);
+  });
+});

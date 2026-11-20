@@ -43,7 +43,7 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
   await page.click('a:visible:has-text("AD-1041")');
   await page.waitForSelector('h1:has-text("AD-1041")');
   const v3 = await page.innerText('main');
-  ok('fee request shown resolved', /Resolved/.test(v3) && /The claim was removed/.test(v3));
+  ok('fee request shown as removed, in plain words', /Flagged claim removed/.test(v3) && /The claim was removed/.test(v3) && !/Resolved/.test(v3));
   ok('no new claim in v3', /Nothing was added in this version/.test(v3));
   await page.screenshot({ path: SHOTS + '/9-review-v3.png', fullPage: true });
   await approve(page, 3);

@@ -23,7 +23,7 @@ const SHOTS = process.env.SHOTS || require('node:os').tmpdir();
   await page.click('a:visible:has-text("AD-1041")');
   await page.waitForSelector('h1:has-text("AD-1041")');
   const body = await page.innerText('main');
-  ok('APR request shown resolved', /Resolved/.test(body) && /now says "8\.99% APR"/.test(body));
+  ok('APR request shows the change and that the requested figure is present', /Requested figure is present/.test(body) && /6\.99% APR \u2192 8\.99% APR/.test(body) && !/Resolved/.test(body));
   ok('new fee claim flagged', /New claim, not in version 1: .?No origination fee/.test(body));
   ok('offer terms shown', /Lowest APR\s*8\.99%/.test(body) && /Origination fee\s*2%/.test(body));
   const draft = await page.inputValue('textarea[name=comment]');

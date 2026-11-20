@@ -146,7 +146,7 @@ export default async function Queue(props: PageProps<"/">) {
   const assets = await loadAssets(await getWorkspaceId());
   const reviews = await getStoredReviews(assets);
   const ai = new Map<string, AiSummary>(
-    assets.map((a) => [a.id, summarizeAi(reviews.get(a.id) ?? null, a.analysis?.claims ?? [])]),
+    assets.map((a) => [a.id, summarizeAi(reviews.get(a.id) ?? null, a.analysis?.checks ?? [])]),
   );
   const waiting = assets
     .filter((a) => REVIEWER_TURN.includes(a.status))

@@ -8,6 +8,7 @@ import { CopyEditor } from "./CopyEditor";
 export function ReviseForm({
   adRef,
   currentBody,
+  baseFingerprint,
   nextVersion,
   terms,
   dateLabel,
@@ -15,6 +16,8 @@ export function ReviseForm({
 }: {
   adRef: string;
   currentBody: string;
+  /** The fingerprint of the text this edit started from. The server refuses the edit if a newer version exists. */
+  baseFingerprint: string;
   nextVersion: number;
   terms: OfferTerms | null;
   dateLabel: string;
@@ -26,6 +29,7 @@ export function ReviseForm({
   return (
     <form action={action} className="space-y-3">
       <input type="hidden" name="ref" value={adRef} />
+      <input type="hidden" name="baseFingerprint" value={baseFingerprint} />
       {afterApproval ? (
         <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950">
           This ad is approved as it stands. Changing the text creates version {nextVersion}, which must be approved before it

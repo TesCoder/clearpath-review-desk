@@ -1,6 +1,6 @@
 // Code-only checks on ad copy. No model is involved anywhere in this file.
 //
-// Decision-logic rounds: 4 (llm-first-decision-architecture.mdc section 6).
+// Decision-logic rounds: 5 (llm-first-decision-architecture.mdc section 6).
 // Decision counted: whether a claim in ad copy "matches" the offer, "does not
 // match", or "needs the reviewer".
 //   Round 1, 2026-11-20: the approver's test of the submit form found a rate
@@ -11,6 +11,13 @@
 //     Stopped there. The approver chose the split the same day ("Yes, narrow
 //     it"): exact forms in code, everything else held for the reviewer.
 //   Round 3, 2026-11-20: that narrowing, below. It adds no accepted form.
+//   Round 5, 2026-11-20: a second review found "The maximum APR is 6.99%"
+//     given the edit "8.99%" and then shown with no flags, and an interest
+//     rate edited as if it were the APR. Narrowed: an edit is suggested only
+//     when the ad states the figure as its lowest rate; a stated maximum or
+//     minimum that differs from the offer's is flagged or held, never
+//     matched; in a sentence about interest only "<figure> APR" is an APR.
+//     It adds no accepted form.
 //   Round 4, 2026-11-20: an external review found "0% prepayment fee" compared
 //     with the origination fee and offered "Change to: 2%". Narrowed: a fee
 //     figure is compared only when the ad names the origination fee. It adds
@@ -62,6 +69,10 @@ export type Claim = {
   end: number;
   /** Set when a whole sentence is held because it mentions a rate or a fee with nothing the check could read. */
   heldSentence?: true;
+  /** The figure directly follows "from", "as low as", "starting at" and the like: the ad states it as its lowest rate. */
+  statesMinimum?: true;
+  /** A word just before the figure says which end of the range it is. */
+  endpoint?: "maximum" | "minimum";
 };
 
 export type CheckStatus = "ok" | "mismatch" | "needs_reviewer";
@@ -321,8 +332,20 @@ export function findClaims(text: string): Claim[] {
     if (kind === "fee" && !namesOriginationFee(lower, n.s, n.e)) kind = "unclassified";
     // Include a directly following "APR" in the quoted words.
     const tail = /^\s?apr\b/.exec(lower.slice(e));
+    // "Interest rate 6.99%, APR 8.99%": the offer sheet has no separate
+    // interest rate. In a sentence about interest, a figure is called an APR
+    // only when "APR" directly follows it. Otherwise it is held.
+    if (kind === "apr" && !tail && /\binterest\b/.test(sentence)) kind = "unclassified";
     if (kind === "apr" && tail) e += tail[0].length;
     const claim: Claim = { kind, value, ...toOriginal(s, e) };
+    if (kind === "apr") {
+      // What the words just before the figure say it is. Used only to hold a
+      // figure back or to withhold a suggested edit, never to call a match.
+      const lead = lower.slice(Math.max(0, n.s - 30), n.s);
+      if (/(?:\bfrom|\bas low as|\bstarting at|\bstarting from|\bstart at|\bstarts at)\s+$/.test(lead)) claim.statesMinimum = true;
+      if (/\b(?:maximum|max|highest|up to|no more than|at most|capped at)\b[^.!?]*$/.test(lead)) claim.endpoint = "maximum";
+      else if (/\b(?:minimum|lowest|as low as)\b[^.!?]*$/.test(lead)) claim.endpoint = "minimum";
+    }
     claims.push(claim);
     figureSpans.set(claim, [n.s, e]);
     read.push([s, e]);
@@ -418,13 +441,32 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         suggestion: null,
       };
     }
+    const range = `${pct(terms.aprMin)} to ${pct(terms.aprMax)}`;
+    if (claim.endpoint === "maximum" && claim.value !== terms.aprMax && claim.value <= terms.aprMax) {
+      // "The maximum APR is 6.99%" or "... is 12.99%": a stated maximum that is
+      // not the offer's. Below the floor it is a mismatch; inside the range the
+      // check cannot say more than that it differs, so the reviewer reads it.
+      // Either way there is no suggested edit: swapping in the offer's lowest
+      // rate would write a new false maximum.
+      return {
+        claim,
+        status: claim.value < terms.aprMin ? "mismatch" : "needs_reviewer",
+        message: `The ad states a maximum APR of ${pct(claim.value)}. The APR range on the ${terms.campaign} offer ${since} is ${range}.${claim.value < terms.aprMin ? "" : " Please read it."}`,
+        offerValue: range,
+        suggestion: null,
+      };
+    }
     if (claim.value < terms.aprMin) {
       return {
         claim,
         status: "mismatch",
         message: `The ad says ${pct(claim.value)} APR. The lowest APR on the ${terms.campaign} offer ${since} is ${pct(terms.aprMin)}.`,
         offerValue: pct(terms.aprMin),
-        suggestion: withNumber(claim, terms.aprMin.toFixed(2)),
+        // An edit is suggested only when the ad states the figure as its lowest
+        // rate ("from 6.99% APR"). Then the offer's lowest rate is the field it
+        // corresponds to. For any other wording the range is shown and the
+        // marketer decides.
+        suggestion: claim.statesMinimum ? withNumber(claim, terms.aprMin.toFixed(2)) : null,
       };
     }
     if (claim.value > terms.aprMax) {
@@ -433,7 +475,16 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         status: "mismatch",
         message: `The ad says ${pct(claim.value)} APR. The highest APR on the ${terms.campaign} offer ${since} is ${pct(terms.aprMax)}.`,
         offerValue: pct(terms.aprMax),
-        suggestion: withNumber(claim, terms.aprMax.toFixed(2)),
+        suggestion: null,
+      };
+    }
+    if (claim.endpoint === "minimum" && claim.value !== terms.aprMin) {
+      return {
+        claim,
+        status: "needs_reviewer",
+        message: `The ad states a lowest APR of ${pct(claim.value)}. The APR range on the ${terms.campaign} offer ${since} is ${range}. Please read it.`,
+        offerValue: range,
+        suggestion: null,
       };
     }
     return {

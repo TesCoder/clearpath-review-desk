@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { decide, type FormState } from "@/app/actions";
 
 export type Anchor = {
@@ -37,15 +37,14 @@ export function DecisionPanel(props: Props) {
   const firstFlag = anchors.find((a) => a.flagged) ?? null;
   const [state, action, pending] = useActionState(decide, initial);
   // With an open code flag, the likely next step is a request, so start there.
-  // With only AI findings to read, nothing is preselected: the reviewer picks,
-  // so the screen never leans toward Approve while something is unread.
-  // With nothing flagged at all, start on Approve.
-  const [mode, setMode] = useState<"approve" | "request_changes" | null>(
-    firstFlag ? "request_changes" : props.aiFindings > 0 ? null : "approve",
-  );
+  // Otherwise nothing is preselected: the reviewer picks. Approve is never the
+  // starting choice, so the screen cannot lean toward it while the AI's read
+  // is still arriving, and a choice the reviewer made stays as they made it.
+  const [mode, setMode] = useState<"approve" | "request_changes" | null>(firstFlag ? "request_changes" : null);
   const [anchor, setAnchor] = useState(firstFlag?.quote ?? "");
   const [comment, setComment] = useState(firstFlag?.draft ?? "");
   const [edited, setEdited] = useState(false);
+  const editedRef = useRef(false);
 
   // Selecting words in the ad anchors the request to them.
   useEffect(() => {
@@ -58,6 +57,9 @@ export function DecisionPanel(props: Props) {
       if (!picked || picked.length > 200) return;
       setMode("request_changes");
       setAnchor(picked);
+      // A draft written for another claim would now sit under the wrong words.
+      // Clear it, unless the reviewer has typed their own.
+      if (!editedRef.current) setComment("");
     };
     document.addEventListener("mouseup", onSelect);
     document.addEventListener("keyup", onSelect);
@@ -107,8 +109,9 @@ export function DecisionPanel(props: Props) {
 
       {mode === null ? (
         <p className="mt-4 text-sm text-slate-700">
-          The AI pointed to {props.aiFindings === 1 ? "one thing" : `${props.aiFindings} things`} in this ad that the number
-          check does not cover. Read {props.aiFindings === 1 ? "it" : "them"} above, then choose how to decide.
+          {props.aiFindings > 0
+            ? `The AI pointed to ${props.aiFindings === 1 ? "one thing" : `${props.aiFindings} things`} in this ad beyond the number check. Read ${props.aiFindings === 1 ? "it" : "them"} above, then choose: request changes, or approve this version.`
+            : "Choose how to decide: request changes, or approve this version."}
         </p>
       ) : mode === "request_changes" ? (
         <div className="mt-4 space-y-3">
@@ -158,6 +161,7 @@ export function DecisionPanel(props: Props) {
               onChange={(e) => {
                 setComment(e.target.value);
                 setEdited(true);
+                editedRef.current = true;
               }}
               rows={5}
               maxLength={props.maxComment}

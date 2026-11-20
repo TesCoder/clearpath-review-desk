@@ -1,23 +1,18 @@
 // What a reviewer needs to know about a revision without rereading the ad:
 // did it answer each earlier request, and did it bring in anything new?
 //
-// Decision-logic rounds: 3 (llm-first-decision-architecture.mdc section 6).
-// Decision counted: whether an earlier request is shown as "Resolved".
-// Every round so far has narrowed it: none added a way to be resolved.
-//   Round 1, 2026-11-20: a reworded false claim ("we waive the fee") was
-//     marked resolved. Narrowed to a verified figure or a pure deletion.
-//   Round 2, 2026-11-20: a two-part request was marked resolved when one part
-//     was fixed. Narrowed to the app's own drafted, single-claim request.
-//   Round 3, 2026-11-20: an unchanged figure elsewhere in the ad was accepted
-//     as the correction. Narrowed to a matching figure that is new in the
-//     version, with the flagged figure gone and nothing new held.
-// The only two ways a request is "Resolved" (both need the app's own drafted
-// request, sent unedited):
-//   A. the flagged figure is gone, a matching figure of the same kind is new
-//      in this version, and the version brought in nothing the check held;
-//   B. the flagged claim was deleted and nothing at all was added.
-// Everything else asks the reviewer to confirm. Do not add a third way
-// without the approver's word.
+// Decision-logic rounds: 4 (llm-first-decision-architecture.mdc section 6).
+// Decision counted: what the screen says about an earlier request.
+//   Rounds 1 to 3, 2026-11-20: each narrowed when "Resolved" was shown (a
+//     reworded claim; a two-part request; an unchanged figure elsewhere).
+//   Round 4, 2026-11-20: a second review found two more false "Resolved"
+//     (a different in-range figure than the one requested; the letters "APR"
+//     deleted with the figure left behind). At the approver's direction
+//     ("review it and fix as needed"), with the reviewer and EA both
+//     recommending it, the decision was dropped: the screen no longer says
+//     "Resolved". It reports what the comparison found, in the exact forms
+//     listed in reviewRevision below, and asks the reviewer to confirm
+//     everything else. Do not bring back a verdict without the approver's word.
 
 import { analyzeCopy, draftRequest, normalizeWithMap, type Check, type ClaimKind, type OfferTerms } from "./checks";
 import { diffWords } from "./diff";
@@ -27,16 +22,17 @@ export type PriorRequest = { anchorText: string | null; body: string };
 export type RequestOutcome = {
   request: PriorRequest;
   /**
-   * resolved: the whole request is known to be met. Only said when the request
-   *   was the app's own drafted comment about one claim, sent unedited, and
-   *   that claim now checks out or was deleted with nothing added.
-   * check_passes: the flagged figure now checks out or was deleted, but the
-   *   reviewer wrote the request in their own words, so it may ask for more
-   *   than the number check can see. The reviewer confirms the rest.
+   * What the comparison of the two versions found. The screen reports this and
+   * no more: it never says a request is "resolved".
+   * requested_present: the app's drafted request named a figure, and exactly
+   *   that figure is new in this version.
+   * removed: the flagged claim was deleted, its figure is gone, nothing was added.
+   * check_passes: a new matching figure, under a request in the reviewer's own
+   *   words, which may ask for more than a number check can see.
    * not_resolved / unchanged: the flagged claim is still wrong or still there.
-   * changed: the wording changed in a way the check cannot verify.
+   * changed: anything else. The change is shown and the reviewer confirms.
    */
-  outcome: "resolved" | "check_passes" | "not_resolved" | "unchanged" | "changed";
+  outcome: "requested_present" | "removed" | "check_passes" | "not_resolved" | "unchanged" | "changed";
   detail: string;
 };
 
@@ -94,33 +90,59 @@ export function reviewRevision(
       // Code cannot read that, so it says only what it verified and asks the
       // reviewer to confirm the rest. The one exception is the app's own
       // drafted request, sent unedited: it is about this claim and nothing else.
-      const onlyAboutThisClaim = request.body.trim() === draftRequest(flagged);
+      const fromDraft = request.body.trim() === draftRequest(flagged);
       const label = fam === "apr" ? "rate" : "fee";
-      // What counts as a verified correction. All of these, or it is not one:
-      //   1. no mismatch of this kind remains (checked just above);
-      //   2. the flagged figure is gone from the ad, in any form;
-      //   3. a matching figure of this kind is new in this version. A figure
-      //      that was already in the ad and did not change proves nothing
-      //      about the one that was flagged;
-      //   4. this version brought in nothing the number check had to hold for
-      //      the reviewer (a range, an unreadable figure, fee wording).
+      // The screen never says "Resolved". It says what the comparison found:
+      //   requested_present  the drafted request named a figure, and exactly
+      //                      that figure is new in this version
+      //   removed            the flagged claim was deleted, its figure is gone
+      //                      from the ad, and nothing was added
+      //   check_passes       a new matching figure, under a request written
+      //                      in the reviewer's own words
+      //   changed            anything else: a different figure, reworded
+      //                      copy, a figure left behind. The change is shown
+      //                      and the reviewer confirms.
+      // A figure counts only if it is new in this version, the flagged figure
+      // is gone from the ad in every form, and the version brought in nothing
+      // the number check had to hold for the reviewer.
       const flaggedValue = flagged.claim.value;
       const figureGone =
         flaggedValue === null ||
         (!numbersIn(currentBody).includes(flaggedValue) && !after.claims.some((c) => c.value === flaggedValue));
       const broughtInHeld = after.checks.some((c) => c.claim.kind === "unclassified" && !seenBefore.has(signature(c)));
-      const verified =
-        figureGone && !broughtInHeld ? sameFamily.find((c) => c.status === "ok" && !seenBefore.has(signature(c))) : undefined;
-      if (verified) {
-        const fact = `The ad now says "${verified.claim.quote}", which matches the offer.`;
-        return onlyAboutThisClaim
-          ? { request, outcome: "resolved", detail: fact }
-          : { request, outcome: "check_passes", detail: `${fact} That is all the ${label} check can confirm. Confirm the rest of your request.` };
+      const fresh =
+        figureGone && !broughtInHeld ? sameFamily.filter((c) => c.status === "ok" && !seenBefore.has(signature(c))) : [];
+      // The figure the drafted request asked for, when it named one.
+      const asked = !fromDraft
+        ? null
+        : flagged.claim.kind === "no_fee" || flagged.claim.kind === "fee"
+          ? terms.feePct
+          : flagged.suggestion === null || flaggedValue === null
+            ? null
+            : terms.aprMin !== null && flaggedValue < terms.aprMin
+              ? terms.aprMin
+              : terms.aprMax;
+      const arrow = (c: Check) => `${flagged.claim.quote} \u2192 ${c.claim.quote}.`;
+      if (fresh.length) {
+        const exact = asked === null ? undefined : fresh.find((c) => c.claim.value === asked);
+        if (exact) return { request, outcome: "requested_present", detail: `${arrow(exact)} That is the figure the request asked for.` };
+        if (fromDraft) {
+          return {
+            request,
+            outcome: "changed",
+            detail: `${arrow(fresh[0])} ${asked === null ? "" : `The request asked for ${asked}%. `}The new figure is within the offer, but it is not the one requested. Confirm it answers your request.`,
+          };
+        }
+        return {
+          request,
+          outcome: "check_passes",
+          detail: `The ad now says "${fresh[0].claim.quote}", which matches the offer. That is all the ${label} check can confirm. Confirm the rest of your request.`,
+        };
       }
-      if (!stillThere && onlyRemovals) {
+      if (!stillThere && onlyRemovals && figureGone) {
         const fact = "The claim was removed, and nothing was added in its place.";
-        return onlyAboutThisClaim
-          ? { request, outcome: "resolved", detail: fact }
+        return fromDraft
+          ? { request, outcome: "removed", detail: fact }
           : { request, outcome: "check_passes", detail: `${fact} Confirm the rest of your request.` };
       }
       return {

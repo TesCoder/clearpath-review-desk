@@ -49,8 +49,12 @@ const OUTCOME: Record<
   RequestOutcome["outcome"],
   { label: string; cls: string }
 > = {
-  resolved: { label: "Resolved", cls: "bg-emerald-100 text-emerald-900" },
-  not_resolved: { label: "Not resolved", cls: "bg-red-100 text-red-900" },
+  requested_present: {
+    label: "Requested figure is present",
+    cls: "bg-emerald-100 text-emerald-900",
+  },
+  removed: { label: "Flagged claim removed", cls: "bg-emerald-100 text-emerald-900" },
+  not_resolved: { label: "Still does not match", cls: "bg-red-100 text-red-900" },
   unchanged: { label: "Not changed", cls: "bg-red-100 text-red-900" },
   check_passes: {
     label: "Check passes, confirm the rest",
@@ -138,7 +142,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
 
   const { latest, terms, analysis } = asset;
   const aiReview = await getStoredReview(asset);
-  const aiOnly = findingsBeyondChecks(aiReview, analysis?.claims ?? []);
+  const aiOnly = findingsBeyondChecks(aiReview, analysis?.checks ?? []);
   const extraMarks: ExtraMark[] = [
     ...aiOnly.map((f) => ({
       start: f.start,
@@ -242,6 +246,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
             <ReviseForm
               adRef={asset.ref}
               currentBody={latest.body}
+                    baseFingerprint={latest.fingerprint}
               nextVersion={latest.number + 1}
               terms={terms}
               dateLabel={formatDate(asset.plannedDate)}
@@ -810,6 +815,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                 <ReviseForm
                   adRef={asset.ref}
                   currentBody={latest.body}
+                    baseFingerprint={latest.fingerprint}
                   nextVersion={latest.number + 1}
                   terms={terms}
                   dateLabel={formatDate(asset.plannedDate)}
