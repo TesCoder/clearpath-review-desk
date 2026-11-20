@@ -8,14 +8,17 @@
     "start": "next start",
     "lint": "eslint",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval": "LIVE_AI=1 node --env-file-if-exists=.env.local node_modules/vitest/vitest.mjs run src/lib/ai/live.eval.test.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.12.0",
     "next": "16.4.6",
     "postgres": "^4.1.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",

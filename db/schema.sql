@@ -113,6 +113,34 @@ create index if not exists decisions_version_idx on decisions (version_id);
 create index if not exists comments_version_idx on comments (version_id);
 create index if not exists events_workspace_idx on events (workspace_id, created_at);
 
+-- AI review results, kept by content: the same text checked against the same
+-- offer revision gives the same result for every visitor, so it is stored
+-- once. The key is the text's own fingerprint, so nothing here belongs to one
+-- workspace. Only answers from the model are stored, never "unavailable".
+create table if not exists ai_reviews (
+  fingerprint        text not null,
+  offer_revision_id  text not null references offer_revisions (id),
+  placement          text not null,
+  prompt_version     text not null,
+  status             text not null check (status in ('complete', 'incomplete')),
+  findings           jsonb not null,
+  dropped            int  not null,
+  missed             jsonb not null,
+  reason             text,
+  model              text not null,
+  created_at         timestamptz not null default now(),
+  primary key (fingerprint, offer_revision_id, placement, prompt_version)
+);
+
+-- One row per model call, to cap spend on a public demo.
+create table if not exists ai_calls (
+  id            bigserial primary key,
+  workspace_id  uuid references workspaces (id) on delete set null,
+  outcome       text not null,
+  created_at    timestamptz not null default now()
+);
+create index if not exists ai_calls_created_idx on ai_calls (created_at);
+
 -- Reference data -------------------------------------------------------------
 
 insert into offers (id, product, campaign) values

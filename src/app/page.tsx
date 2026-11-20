@@ -16,7 +16,7 @@ function queueOrder(a: AssetView, b: AssetView): number {
 }
 
 function Flags({ a }: { a: AssetView }) {
-  const n = a.analysis?.openFlags ?? 0;
+  const n = a.flags;
   if (!a.terms) return <span className="text-amber-800">No offer terms on that date</span>;
   if (n === 0) return <span className="text-slate-500">None</span>;
   return <span className="font-medium text-red-700">{n} to check</span>;

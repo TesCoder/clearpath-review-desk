@@ -8,6 +8,8 @@ export type Anchor = {
   /** A comment the reviewer can edit, written from the code check. */
   draft: string;
   flagged: boolean;
+  /** Who wrote the draft: the offer check in code, or the AI. */
+  source: "check" | "ai";
 };
 
 type Props = {
@@ -105,7 +107,7 @@ export function DecisionPanel(props: Props) {
                       : "border-slate-300 text-slate-700 hover:bg-slate-50"
                   }`}
                 >
-                  {a.quote}
+                  {a.quote.length > 48 ? a.quote.slice(0, 46) + "..." : a.quote}
                 </button>
               ))}
               <button
@@ -145,7 +147,10 @@ export function DecisionPanel(props: Props) {
             />
           </label>
           {!edited && comment ? (
-            <p className="text-xs text-slate-500">Drafted from the offer check. Edit it freely: you own the words.</p>
+            <p className="text-xs text-slate-500">
+              {anchors.find((a) => a.quote === anchor)?.source === "ai" ? "Drafted by AI." : "Drafted from the offer check."}{" "}
+              Edit it freely: you own the words.
+            </p>
           ) : null}
           <button
             type="submit"

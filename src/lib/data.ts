@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "./db";
 import { analyzeCopy, type CopyAnalysis, type OfferTerms } from "./checks";
+import { findInstructionText, type InstructionFinding } from "./injection";
 import { termsOn, type RevisionTerms } from "./offers";
 import { deriveStatus, type AssetState, type AssetStatus, type DecisionRecord } from "./status";
 
@@ -42,6 +43,10 @@ export type AssetView = {
   terms: RevisionTerms | null;
   /** Code checks of the latest version against those terms. */
   analysis: CopyAnalysis | null;
+  /** Text in the copy addressed to an AI or to the review process. */
+  instructionText: InstructionFinding[];
+  /** Everything the reviewer should look at: check results plus the flags above. */
+  flags: number;
   state: AssetState;
   status: AssetStatus;
   /** When the ad last changed hands (a submission, a decision or a move). */
@@ -184,6 +189,8 @@ export async function loadAssets(workspaceId: string): Promise<AssetView[]> {
       decisions: ds,
     };
     const last = activity.find((e) => e.asset_id === a.id);
+    const analysis = terms ? analyzeCopy(latest.body, terms) : null;
+    const instructionText = findInstructionText(latest.body);
     out.push({
       id: a.id,
       ref: a.ref,
@@ -198,7 +205,9 @@ export async function loadAssets(workspaceId: string): Promise<AssetView[]> {
       decisions: ds,
       comments: cs,
       terms,
-      analysis: terms ? analyzeCopy(latest.body, terms) : null,
+      analysis,
+      instructionText,
+      flags: (analysis?.openFlags ?? 0) + instructionText.length,
       state,
       status: deriveStatus(state),
       lastActivityAt: last ? iso(last.at) : latest.createdAt,

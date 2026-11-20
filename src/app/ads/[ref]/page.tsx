@@ -1,16 +1,20 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AiRunner } from "@/components/AiRunner";
 import { CopyButton } from "@/components/CopyButton";
-import { CopyView, DiffView } from "@/components/CopyView";
+import { CopyView, DiffView, type ExtraMark } from "@/components/CopyView";
 import { DecisionPanel, type Anchor } from "@/components/DecisionPanel";
 import { MoveForm } from "@/components/MoveForm";
 import { ReviseForm } from "@/components/ReviseForm";
 import { StatusPill } from "@/components/StatusPill";
+import { isAiConfigured } from "@/lib/ai/anthropic";
+import { getStoredReview } from "@/lib/ai/store";
+import type { AiFinding, AiReview } from "@/lib/ai/types";
 import { MAX_COMMENT_CHARS, type Check } from "@/lib/checks";
 import { loadAsset, loadRevisions, type AssetView } from "@/lib/data";
 import { diffWords, hasChanges } from "@/lib/diff";
 import { shortFingerprint } from "@/lib/fingerprint";
-import { formatDate, formatMoment, timeAgo } from "@/lib/format";
+import { formatDate, formatMoment, timeAgo, withArticle } from "@/lib/format";
 import { reviewRevision, type RequestOutcome } from "@/lib/revision";
 import { REVIEWER_TURN, lastApproval } from "@/lib/status";
 import { getRole, getWorkspaceId } from "@/lib/workspace";
@@ -57,15 +61,37 @@ function draftFor(c: Check): string {
   return c.suggestion ? `${c.message} Please change it to ${c.suggestion}.` : c.message;
 }
 
-function anchorsFor(a: AssetView): Anchor[] {
+function anchorsFor(a: AssetView, aiOnly: AiFinding[]): Anchor[] {
   const seen = new Set<string>();
   const out: Anchor[] = [];
   for (const c of a.analysis?.checks ?? []) {
     if (seen.has(c.claim.quote)) continue;
     seen.add(c.claim.quote);
-    out.push({ quote: c.claim.quote, draft: draftFor(c), flagged: c.status !== "ok" });
+    out.push({ quote: c.claim.quote, draft: draftFor(c), flagged: c.status !== "ok", source: "check" });
+  }
+  for (const f of aiOnly) {
+    if (seen.has(f.quote) || f.quote.length > 200) continue;
+    seen.add(f.quote);
+    out.push({ quote: f.quote, draft: f.suggestedComment, flagged: false, source: "ai" });
   }
   return out;
+}
+
+const KIND_LABEL: Record<AiFinding["kind"], string> = {
+  rate: "Rate",
+  fee: "Fee",
+  approval_or_eligibility: "Approval or eligibility",
+  credit_impact: "Credit score",
+  speed: "Speed",
+  savings_or_comparison: "Savings or comparison",
+  superlative: "Superlative",
+  other: "Other",
+};
+
+/** AI findings that are not already covered by a code check on the same words. */
+function beyondChecks(review: AiReview | null, a: AssetView): AiFinding[] {
+  const claims = a.analysis?.claims ?? [];
+  return (review?.findings ?? []).filter((f) => !claims.some((c) => f.start < c.end && c.start < f.end));
 }
 
 export default async function AdPage(props: PageProps<"/ads/[ref]">) {
@@ -79,6 +105,12 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
   if (!asset) notFound();
 
   const { latest, terms, analysis } = asset;
+  const aiReview = await getStoredReview(asset);
+  const aiOnly = beyondChecks(aiReview, asset);
+  const extraMarks: ExtraMark[] = [
+    ...aiOnly.map((f) => ({ start: f.start, end: f.end, tone: "ai" as const, title: `Found by AI: ${f.why}` })),
+    ...asset.instructionText.map((f) => ({ start: f.start, end: f.end, tone: "instruction" as const, title: `Addressed to the reviewer or an AI: ${f.reason}` })),
+  ];
   const previous = asset.versions.find((v) => v.number === latest.number - 1) ?? null;
   const priorRequests = previous
     ? asset.comments.filter((c) => c.versionNumber === previous.number && c.authorRole === "reviewer")
@@ -86,6 +118,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
   const revision = previous && terms ? reviewRevision(previous.body, latest.body, priorRequests, terms) : null;
   const diff = previous ? diffWords(previous.body, latest.body) : null;
   const flaggedNew = revision?.newClaims.filter((c) => c.status !== "ok") ?? [];
+  const aiNew = previous ? aiOnly.filter((f) => !previous.body.includes(f.quote)) : [];
   const approval = lastApproval(asset.state);
   const approvedVersion = approval ? asset.versions.find((v) => v.number === approval.versionNumber) : null;
   const approvalTerms = approval ? revisions.find((r) => r.revisionId === approval.offerRevisionId) : null;
@@ -146,7 +179,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
       </div>
       <p className="mt-1 text-sm text-slate-600">
         Version {latest.number}, submitted {timeAgo(latest.createdAt)}. Planned publication {formatDate(asset.plannedDate)} as
-        a {asset.placement.toLowerCase()}.
+        {withArticle(asset.placement)}.
       </p>
 
       {done === "approved" ? (
@@ -168,7 +201,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
       ) : null}
       {done === "moved" ? (
         <p className="mt-4 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm text-slate-800" role="status">
-          Moved to {formatDate(asset.plannedDate)} as a {asset.placement.toLowerCase()}. It is back in the review queue.
+          Moved to {formatDate(asset.plannedDate)} as {withArticle(asset.placement)}. It is back in the review queue.
         </p>
       ) : null}
 
@@ -242,6 +275,18 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
               ) : hasChanges(diff) ? (
                 <p className="mt-4 text-sm text-slate-600">No new rate or fee claim was added in this version.</p>
               ) : null}
+              {aiNew.length ? (
+                <ul className="mt-3 space-y-2">
+                  {aiNew.map((f, i) => (
+                    <li key={i} className="flex flex-wrap items-start justify-between gap-2 rounded-md border border-violet-200 bg-violet-50 p-3">
+                      <p className="text-sm text-violet-950">
+                        New wording, not in version {previous.number}: <q className="font-medium">{f.quote}</q>. {f.why}
+                      </p>
+                      <Badge label="Found by AI" cls="bg-violet-100 text-violet-900" />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </Card>
           ) : null}
 
@@ -251,7 +296,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                 {asset.affiliate.name} · {asset.placement} · Sponsored
               </p>
               <div className="mt-2">
-                <CopyView id="ad-copy" body={latest.body} checks={analysis?.checks ?? []} />
+                <CopyView id="ad-copy" body={latest.body} checks={analysis?.checks ?? []} extra={extraMarks} />
               </div>
             </div>
             {analysis?.hidden.length ? (
@@ -259,6 +304,19 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                 <li className="font-semibold">This copy contains text a reader cannot see as written:</li>
                 {analysis.hidden.map((h) => (
                   <li key={h.kind}>{h.label}.</li>
+                ))}
+              </ul>
+            ) : null}
+            {asset.instructionText.length ? (
+              <ul className="mt-3 space-y-1 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                <li className="font-semibold">
+                  Part of this copy is written to the reviewer or to an AI, not to a consumer. It has no effect on the
+                  checks or on your decision:
+                </li>
+                {asset.instructionText.map((f, i) => (
+                  <li key={i}>
+                    <q>{f.quote}</q> ({f.reason}).
+                  </li>
                 ))}
               </ul>
             ) : null}
@@ -286,7 +344,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                       <div key={d.id} className="mt-2 text-sm">
                         <p className={d.kind === "approve" ? "font-medium text-emerald-800" : "font-medium text-slate-800"}>
                           {d.kind === "approve" ? "Approved" : "Changes requested"} by {d.reviewer}, {formatMoment(d.createdAt)}
-                          {d.kind === "approve" ? `, for ${formatDate(d.plannedDate)} as a ${d.placement.toLowerCase()}` : ""}
+                          {d.kind === "approve" ? `, for ${formatDate(d.plannedDate)} as ${withArticle(d.placement)}` : ""}
                         </p>
                         {asset.comments
                           .filter((c) => c.decisionId === d.id)
@@ -359,15 +417,58 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
             </p>
           </Card>
 
+          {terms ? (
+            <Card title="AI claim finder">
+              {aiReview ? (
+                <>
+                  {aiReview.status === "incomplete" ? (
+                    <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="status">
+                      <p className="font-semibold">AI review incomplete</p>
+                      <p className="mt-1">
+                        {aiReview.reason} Do not read the AI&apos;s answer as a full account of this ad. The code checks
+                        above are complete and still apply.
+                      </p>
+                    </div>
+                  ) : null}
+                  {aiOnly.length ? (
+                    <ul className="space-y-3">
+                      {aiOnly.map((f, i) => (
+                        <li key={i} className="text-sm">
+                          <p className="text-slate-900">
+                            <q className="font-medium">{f.quote}</q>{" "}
+                            <Badge label={KIND_LABEL[f.kind]} cls="bg-violet-100 text-violet-900" />
+                          </p>
+                          <p className="mt-0.5 text-slate-600">{f.why}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : aiReview.status === "complete" ? (
+                    <p className="text-sm text-slate-700">
+                      The AI pointed to nothing beyond the rate and fee checks above.
+                    </p>
+                  ) : null}
+                  <p className="mt-3 text-xs text-slate-500">
+                    The AI reads for wording a number check cannot catch. Every quote it gives is confirmed to be in the ad,
+                    word for word. It cannot approve anything: that is your decision.
+                  </p>
+                </>
+              ) : role === "reviewer" ? (
+                <AiRunner key={latest.fingerprint} adRef={asset.ref} configured={isAiConfigured()} />
+              ) : (
+                <p className="text-sm text-slate-600">The AI reads the ad when the reviewer opens it.</p>
+              )}
+            </Card>
+          ) : null}
+
           {role === "reviewer" && reviewerTurn && terms ? (
             <DecisionPanel
               key={latest.fingerprint}
               adRef={asset.ref}
               versionNumber={latest.number}
               fingerprint={latest.fingerprint}
-              anchors={anchorsFor(asset)}
+              anchors={anchorsFor(asset, aiOnly)}
               mismatches={analysis?.mismatches ?? 0}
-              covers={`Approving covers exactly this text (version ${latest.number}, fingerprint ${shortFingerprint(latest.fingerprint)}), checked against ${terms.campaign} revision ${terms.revision}, for publication on ${formatDate(asset.plannedDate)} as a ${asset.placement.toLowerCase()}. Any edit, new date or new placement comes back to you.`}
+              covers={`Approving covers exactly this text (version ${latest.number}, fingerprint ${shortFingerprint(latest.fingerprint)}), checked against ${terms.campaign} revision ${terms.revision}, for publication on ${formatDate(asset.plannedDate)} as ${withArticle(asset.placement)}. Any edit, new date or new placement comes back to you.`}
               copyElementId="ad-copy"
               maxComment={MAX_COMMENT_CHARS}
             />
@@ -389,8 +490,8 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                 Approved by {asset.decisions.find((d) => d.createdAt === approval.createdAt)?.reviewer} on{" "}
                 {formatMoment(approval.createdAt)}. Version {approval.versionNumber}, fingerprint{" "}
                 <span className="font-mono">{shortFingerprint(approval.fingerprint)}</span>, checked against{" "}
-                {approvalTerms.campaign} revision {approvalTerms.revision}, for {formatDate(approval.plannedDate)} as a{" "}
-                {approval.placement.toLowerCase()}.
+                {approvalTerms.campaign} revision {approvalTerms.revision}, for {formatDate(approval.plannedDate)} as{" "}
+                {withArticle(approval.placement)}.
               </p>
               {asset.status !== "approved" ? (
                 <p className="mt-2 text-sm text-amber-900">

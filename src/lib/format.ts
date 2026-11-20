@@ -33,3 +33,9 @@ export function formatMoment(isoTime: string): string {
 export function isoDatePlusDays(days: number): string {
   return new Date(Date.now() + days * 86400_000).toISOString().slice(0, 10);
 }
+
+/** "a comparison site listing", "an email newsletter". */
+export function withArticle(noun: string): string {
+  const lower = noun.toLowerCase();
+  return `${/^[aeiou]/.test(lower) ? "an" : "a"} ${lower}`;
+}

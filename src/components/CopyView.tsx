@@ -17,19 +17,32 @@ const TITLE: Record<Check["status"], string> = {
  * it is only ever placed in the page as text, so markup or links inside it
  * show up as the characters the affiliate typed.
  */
-export function CopyView({ body, checks, id }: { body: string; checks: Check[]; id?: string }) {
-  const spans = [...checks].sort((a, b) => a.claim.start - b.claim.start);
+export type ExtraMark = { start: number; end: number; tone: "ai" | "instruction"; title: string };
+
+const EXTRA: Record<ExtraMark["tone"], string> = {
+  ai: "bg-violet-50 text-violet-950 underline decoration-violet-500 decoration-dotted decoration-2 underline-offset-4",
+  instruction: "bg-amber-100 text-amber-950 underline decoration-amber-600 decoration-wavy decoration-1 underline-offset-4",
+};
+
+export function CopyView({ body, checks, extra = [], id }: { body: string; checks: Check[]; extra?: ExtraMark[]; id?: string }) {
+  // Code checks take precedence where marks overlap.
+  const spans = [
+    ...checks.map((c) => ({ start: c.claim.start, end: c.claim.end, cls: MARK[c.status], title: `${TITLE[c.status]}: ${c.message}`, rank: 0 })),
+    ...extra.map((e) => ({ start: e.start, end: e.end, cls: EXTRA[e.tone], title: e.title, rank: 1 })),
+  ].sort((a, b) => a.start - b.start || a.rank - b.rank);
+  const taken = spans.filter((s) => s.rank === 0);
+  const kept = spans.filter((s) => s.rank === 0 || !taken.some((t) => s.start < t.end && t.start < s.end));
   const out: React.ReactNode[] = [];
   let at = 0;
-  spans.forEach((c, i) => {
-    if (c.claim.start < at) return; // overlapping spans: keep the first
-    if (c.claim.start > at) out.push(body.slice(at, c.claim.start));
+  kept.forEach((c, i) => {
+    if (c.start < at) return; // overlapping spans: keep the first
+    if (c.start > at) out.push(body.slice(at, c.start));
     out.push(
-      <mark key={i} className={`rounded px-0.5 ${MARK[c.status]}`} title={`${TITLE[c.status]}: ${c.message}`}>
-        {body.slice(c.claim.start, c.claim.end)}
+      <mark key={i} className={`rounded px-0.5 ${c.cls}`} title={c.title}>
+        {body.slice(c.start, c.end)}
       </mark>,
     );
-    at = c.claim.end;
+    at = c.end;
   });
   if (at < body.length) out.push(body.slice(at));
   return (
