@@ -13,11 +13,14 @@ export function CopyEditor({
   onChange,
   terms,
   dateLabel,
+  covered,
 }: {
   value: string;
   onChange: (next: string) => void;
   terms: OfferTerms | null;
   dateLabel: string;
+  /** The dates the offer has terms for, in words. */
+  covered?: string;
 }) {
   const analysis = useMemo(() => (terms && value.trim() ? analyzeCopy(value, terms) : null), [value, terms]);
   const open = analysis?.checks.filter((c) => c.status !== "ok") ?? [];
@@ -47,7 +50,8 @@ export function CopyEditor({
         <p className="text-sm font-semibold text-slate-800">Check against the offer</p>
         {!terms ? (
           <p className="mt-1 text-sm text-amber-900">
-            No terms for this offer are in effect on {dateLabel}. Pick another date or offer.
+            No terms for this offer are in effect on {dateLabel}.{covered ? ` It has terms for ${covered}.` : ""} Pick another
+            date or offer: an ad cannot be submitted for a date with no terms to check it against.
           </p>
         ) : !value.trim() ? (
           <p className="mt-1 text-sm text-slate-600">Rates and fees in the copy are checked here as you type.</p>

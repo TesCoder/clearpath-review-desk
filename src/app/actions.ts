@@ -3,10 +3,11 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { MAX_COMMENT_CHARS, MAX_COPY_CHARS, MAX_NOTE_CHARS } from "@/lib/checks";
-import { loadAsset } from "@/lib/data";
+import { loadAsset, loadRevisions } from "@/lib/data";
 import { db } from "@/lib/db";
 import { fingerprint } from "@/lib/fingerprint";
-import { MAX_ADS_PER_WORKSPACE, MAX_TITLE_CHARS, MAX_VERSIONS_PER_AD, PLACEMENTS, isIsoDate } from "@/lib/offers";
+import { formatDate } from "@/lib/format";
+import { MAX_ADS_PER_WORKSPACE, MAX_TITLE_CHARS, MAX_VERSIONS_PER_AD, PLACEMENTS, coverageText, isIsoDate, termsOn } from "@/lib/offers";
 import { DEMO_REVIEWER } from "@/lib/seed";
 import { refuseDecision, type DecisionKind } from "@/lib/status";
 import { ROLE_COOKIE, getRole, getWorkspaceId, resetWorkspace } from "@/lib/workspace";
@@ -22,7 +23,22 @@ export async function switchRole(formData: FormData): Promise<void> {
     path: "/",
     maxAge: 60 * 60 * 24 * 14,
   });
+  // Stay on the same ad when the switch was made from an ad's page.
+  const next = formData.get("next");
+  if (typeof next === "string" && /^\/ads\/AD-\d{1,6}$/.test(next)) redirect(next);
   redirect(role === "marketer" ? "/marketer" : "/");
+}
+
+/**
+ * An ad can only be planned for a date the offer has terms for. Without
+ * terms there is nothing to check it against, and it would sit with no one
+ * able to act on it. Returns the message to show, or null when the date is fine.
+ */
+async function uncoveredDate(offerId: string, plannedDate: string): Promise<string | null> {
+  const revisions = await loadRevisions();
+  if (termsOn(revisions, offerId, plannedDate)) return null;
+  const campaign = revisions.find((r) => r.offerId === offerId)?.campaign ?? "that offer";
+  return `No ${campaign} terms are in effect on ${formatDate(plannedDate)}. The offer has terms for ${coverageText(revisions, offerId)}. Choose a date in that range.`;
 }
 
 export async function resetDemo(): Promise<void> {
@@ -148,6 +164,8 @@ export async function submitAd(_prev: FormState, formData: FormData): Promise<Fo
   `;
   if (!known.affiliate) return { error: "Choose an affiliate from the list." };
   if (!known.offer) return { error: "Choose an offer from the list." };
+  const uncovered = await uncoveredDate(offerId, plannedDate);
+  if (uncovered) return { error: uncovered };
   if (known.ads >= MAX_ADS_PER_WORKSPACE) {
     return { error: "This demo workspace is full. Use Reset demo to start over." };
   }
@@ -219,6 +237,8 @@ export async function moveAd(_prev: FormState, formData: FormData): Promise<Form
   if (asset.plannedDate === plannedDate && asset.placement === placement) {
     return { error: "That is the current date and placement. Change one to move the ad." };
   }
+  const uncovered = await uncoveredDate(asset.offer.id, plannedDate);
+  if (uncovered) return { error: uncovered };
   await db().begin(async (tx) => {
     await tx`
       update assets set planned_date = ${plannedDate}, placement = ${placement}

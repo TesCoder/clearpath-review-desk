@@ -6,14 +6,28 @@ import { PLACEMENTS } from "@/lib/offers";
 
 const field = "mt-1 block w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm";
 
-export function MoveForm({ adRef, plannedDate, placement }: { adRef: string; plannedDate: string; placement: string }) {
+export function MoveForm({
+  adRef,
+  plannedDate,
+  placement,
+  covered,
+  intro,
+}: {
+  adRef: string;
+  plannedDate: string;
+  placement: string;
+  /** The dates the offer has terms for, in words. */
+  covered: string;
+  intro?: string;
+}) {
   const [state, action, pending] = useActionState<FormState, FormData>(moveAd, { error: null });
   return (
     <form action={action} className="space-y-2">
       <input type="hidden" name="ref" value={adRef} />
       <p className="text-sm text-slate-700">
-        An approval covers one date and one placement. Moving the ad sends it back to review, even if no word changes.
+        {intro ?? "An approval covers one date and one placement. Moving the ad sends it back to review, even if no word changes."}
       </p>
+      <p className="text-xs text-slate-500">The offer has terms for {covered}.</p>
       <div className="grid grid-cols-2 gap-3">
         <label className="block text-sm">
           <span className="font-medium text-slate-800">New date</span>

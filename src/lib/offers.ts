@@ -1,5 +1,6 @@
 // Shared by server and browser: which offer terms apply on a date.
 import type { OfferTerms } from "./checks";
+import { formatDate } from "./format";
 
 export type RevisionTerms = OfferTerms & { offerId: string; revision: number };
 
@@ -22,3 +23,28 @@ export function isIsoDate(value: string): boolean {
 export const MAX_TITLE_CHARS = 80;
 export const MAX_ADS_PER_WORKSPACE = 40;
 export const MAX_VERSIONS_PER_AD = 20;
+
+function nextDay(isoDate: string): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** The date ranges an offer has terms for, with back-to-back revisions joined. */
+export function coverage(revisions: Array<OfferTerms & { offerId: string }>, offerId: string): Array<{ from: string; to: string | null }> {
+  const own = revisions.filter((r) => r.offerId === offerId).sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+  const out: Array<{ from: string; to: string | null }> = [];
+  for (const r of own) {
+    const last = out[out.length - 1];
+    if (last && last.to !== null && nextDay(last.to) >= r.effectiveFrom) last.to = r.effectiveTo;
+    else if (!last || last.to !== null) out.push({ from: r.effectiveFrom, to: r.effectiveTo });
+  }
+  return out;
+}
+
+/** "Nov 1, 2026 onward", or "Nov 1, 2026 to Dec 31, 2026 and Mar 1, 2027 onward". */
+export function coverageText(revisions: Array<OfferTerms & { offerId: string }>, offerId: string): string {
+  const ranges = coverage(revisions, offerId);
+  if (!ranges.length) return "no dates";
+  return ranges.map((r) => (r.to ? `${formatDate(r.from)} to ${formatDate(r.to)}` : `${formatDate(r.from)} onward`)).join(" and ");
+}

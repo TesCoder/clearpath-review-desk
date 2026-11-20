@@ -4,7 +4,7 @@ import { useActionState, useState } from "react";
 import { submitAd, type FormState } from "@/app/actions";
 import { MAX_NOTE_CHARS } from "@/lib/checks";
 import { formatDate } from "@/lib/format";
-import { MAX_TITLE_CHARS, PLACEMENTS, isIsoDate, termsOn, type RevisionTerms } from "@/lib/offers";
+import { MAX_TITLE_CHARS, PLACEMENTS, coverageText, isIsoDate, termsOn, type RevisionTerms } from "@/lib/offers";
 import { CopyEditor } from "./CopyEditor";
 
 type Option = { id: string; label: string };
@@ -80,7 +80,13 @@ export function SubmitForm({
       </div>
 
       <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 lg:col-span-3">
-        <CopyEditor value={body} onChange={setBody} terms={terms} dateLabel={isIsoDate(date) ? formatDate(date) : "that date"} />
+        <CopyEditor
+          value={body}
+          onChange={setBody}
+          terms={terms}
+          dateLabel={isIsoDate(date) ? formatDate(date) : "that date"}
+          covered={coverageText(revisions, offerId)}
+        />
         <label className="block">
           <span className="text-sm font-medium text-slate-800">Note to the reviewer (optional)</span>
           <textarea name="note" rows={2} maxLength={MAX_NOTE_CHARS} className={field} />
@@ -92,7 +98,7 @@ export function SubmitForm({
         ) : null}
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || !terms}
           className="rounded-md bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
         >
           {pending ? "Submitting..." : "Submit for review"}

@@ -6,7 +6,8 @@ import { getWorkspaceId } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function MarketerHome() {
+export default async function MarketerHome(props: PageProps<"/marketer">) {
+  const { reset } = await props.searchParams;
   const assets = await loadAssets(await getWorkspaceId());
   const mine = [...assets].sort((a, b) => {
     const rank = (s: string) => (s === "changes_requested" ? 0 : s === "approved" ? 2 : 1);
@@ -14,6 +15,11 @@ export default async function MarketerHome() {
   });
   return (
     <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6">
+      {reset ? (
+        <p className="mb-6 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900" role="status">
+          Your demo workspace is back to its starting ads.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Your ads</h1>
