@@ -38,7 +38,7 @@ export type AssetView = {
   decisions: DecisionView[];
   comments: CommentView[];
   /** Offer terms in effect on the planned publication date. */
-  terms: OfferTerms | null;
+  terms: RevisionTerms | null;
   /** Code checks of the latest version against those terms. */
   analysis: CopyAnalysis | null;
   state: AssetState;
@@ -49,6 +49,8 @@ export type AssetView = {
 
 const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : String(d));
 const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+
+export type RevisionTerms = OfferTerms & { offerId: string; revision: number };
 
 type RevisionRow = Record<string, unknown>;
 
@@ -68,7 +70,7 @@ function toTerms(r: RevisionRow): OfferTerms {
 }
 
 /** Every revision of every offer. Trusted reference data, the same for all visitors. */
-export async function loadRevisions(): Promise<Array<OfferTerms & { offerId: string; revision: number }>> {
+export async function loadRevisions(): Promise<RevisionTerms[]> {
   const rows = await db()`
     select r.id, r.offer_id, r.revision, r.effective_from::text, r.effective_to::text,
            r.apr_min, r.apr_max, r.origination_fee_pct, r.term_min_months, r.term_max_months,

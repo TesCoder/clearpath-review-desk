@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 
-const url = process.env.DATABASE_URL;
+const url = process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL;
 if (!url) {
   console.warn("migrate: DATABASE_URL is not set, skipping the schema step.");
   process.exit(0);
