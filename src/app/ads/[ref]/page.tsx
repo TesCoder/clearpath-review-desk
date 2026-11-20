@@ -16,7 +16,7 @@ import { loadAsset, loadRevisions, type AssetView } from "@/lib/data";
 import { diffWords, hasChanges } from "@/lib/diff";
 import { shortFingerprint } from "@/lib/fingerprint";
 import { formatDate, formatMoment, timeAgo, withArticle } from "@/lib/format";
-import { reviewRevision, type RequestOutcome } from "@/lib/revision";
+import { addedSentences, reviewRevision, type RequestOutcome } from "@/lib/revision";
 import { coverageText } from "@/lib/offers";
 import { REVIEWER_TURN, lastApproval } from "@/lib/status";
 import { getRole, getWorkspaceId } from "@/lib/workspace";
@@ -52,7 +52,7 @@ const OUTCOME: Record<
   not_resolved: { label: "Not resolved", cls: "bg-red-100 text-red-900" },
   unchanged: { label: "Not changed", cls: "bg-red-100 text-red-900" },
   changed: {
-    label: "Changed, please confirm",
+    label: "Wording changed, please confirm",
     cls: "bg-amber-100 text-amber-900",
   },
 };
@@ -132,10 +132,15 @@ const KIND_LABEL: Record<AiFinding["kind"], string> = {
 
 /** AI findings that are not already covered by a code check on the same words. */
 function beyondChecks(review: AiReview | null, a: AssetView): AiFinding[] {
+  // A finding is left out only when it is a short rate or fee finding about
+  // the same words a code check already covers. Anything longer or of another
+  // kind is shown, so a claim such as "Guaranteed approval at 6.99% APR" is
+  // never hidden by the number inside it.
   const claims = a.analysis?.claims ?? [];
-  return (review?.findings ?? []).filter(
-    (f) => !claims.some((c) => f.start < c.end && c.start < f.end),
-  );
+  const sameWords = (f: AiFinding) =>
+    (f.kind === "rate" || f.kind === "fee") &&
+    claims.some((c) => f.start < c.end && c.start < f.end && f.end - f.start <= c.end - c.start + 30);
+  return (review?.findings ?? []).filter((f) => !sameWords(f));
 }
 
 export default async function AdPage(props: PageProps<"/ads/[ref]">) {
@@ -179,6 +184,11 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
       : null;
   const diff = previous ? diffWords(previous.body, latest.body) : null;
   const flaggedNew = revision?.newClaims.filter((c) => c.status !== "ok") ?? [];
+  // Added sentences that no code check covers. A reworded claim ("we waive the
+  // fee") lands here, in front of the reviewer, not behind a green tick.
+  const addedWording = previous
+    ? addedSentences(previous.body, latest.body, analysis?.claims ?? [])
+    : [];
   const aiNew = previous
     ? aiOnly.filter((f) => !previous.body.includes(f.quote))
     : [];
@@ -438,10 +448,21 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                     ))}
                   </ul>
                 </div>
-              ) : hasChanges(diff) ? (
-                <p className="mt-4 text-sm text-slate-600">
-                  No new rate or fee claim was added in this version.
-                </p>
+              ) : null}
+              {addedWording.length ? (
+                <div className="mt-5">
+                  <h3 className="text-sm font-semibold text-slate-900">Wording added in this version</h3>
+                  <ul className="mt-2 space-y-2">
+                    {addedWording.map((t, i) => (
+                      <li key={i} className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                        <q className="font-medium">{t}</q>. The number check has nothing to compare this with. Read it
+                        before you decide.
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : hasChanges(diff) && !flaggedNew.length ? (
+                <p className="mt-4 text-sm text-slate-600">Nothing was added in this version: words were only removed.</p>
               ) : null}
               {aiNew.length ? (
                 <ul className="mt-3 space-y-2">
@@ -653,10 +674,13 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
 
           {role === "reviewer" && reviewerTurn && terms ? (
             <DecisionPanel
-              key={latest.fingerprint}
+              key={`${latest.fingerprint}|${asset.plannedDate}|${asset.placement}|${terms.revisionId}`}
               adRef={asset.ref}
               versionNumber={latest.number}
               fingerprint={latest.fingerprint}
+              plannedDate={asset.plannedDate}
+              placement={asset.placement}
+              offerRevisionId={terms.revisionId}
               anchors={anchorsFor(asset, aiOnly)}
               mismatches={analysis?.mismatches ?? 0}
               covers={`Approving covers exactly this text (version ${latest.number}, fingerprint ${shortFingerprint(latest.fingerprint)}), checked against ${terms.campaign} revision ${terms.revision}, for publication on ${formatDate(asset.plannedDate)} as ${withArticle(asset.placement)}. Any edit, new date or new placement comes back to you.`}

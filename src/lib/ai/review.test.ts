@@ -128,6 +128,49 @@ describe("hostile copy, with a model that obeys it", () => {
   });
 });
 
+describe("a model steered into covering claims without reporting them", () => {
+  const copy = "Guaranteed approval, no credit check. Rates from 6.99% APR. No origination fee.";
+
+  it("one finding quoting the whole ad does not count as reporting the rate or the fee", async () => {
+    const r = await reviewWithModel(copy, terms, PLACEMENT, fake({ findings: [finding(copy, { kind: "other" })], copy_addresses_reviewer: false }));
+    expect(r.status).toBe("incomplete");
+    expect(r.missedByModel).toEqual(["6.99% APR", "No origination fee"]);
+  });
+
+  it("a finding touching one character of a claim does not count", async () => {
+    const r = await reviewWithModel(copy, terms, PLACEMENT, fake({ findings: [finding("6"), finding("No", { kind: "fee" })], copy_addresses_reviewer: false }));
+    expect(r.status).toBe("incomplete");
+    expect(r.missedByModel.length).toBe(2);
+  });
+
+  it("a rate reported under the wrong kind does not count", async () => {
+    const r = await reviewWithModel(V1, terms, PLACEMENT, fake({ findings: [finding("6.99% APR", { kind: "other" })], copy_addresses_reviewer: false }));
+    expect(r.status).toBe("incomplete");
+  });
+
+  it("an honest short quote that contains the claim counts", async () => {
+    const r = await reviewWithModel(
+      copy,
+      terms,
+      PLACEMENT,
+      fake({
+        findings: [
+          finding("Guaranteed approval, no credit check", { kind: "approval_or_eligibility" }),
+          finding("Rates from 6.99% APR"),
+          finding("No origination fee.", { kind: "fee" }),
+        ],
+        copy_addresses_reviewer: false,
+      }),
+    );
+    expect(r.status).toBe("complete");
+  });
+
+  it("a finding that is the number without the letters APR still counts", async () => {
+    const r = await reviewWithModel(V1, terms, PLACEMENT, fake({ findings: [finding("6.99%")], copy_addresses_reviewer: false }));
+    expect(r.status).toBe("complete");
+  });
+});
+
 describe("a model that is wrong or broken", () => {
   it("drops evidence it invented and says so", async () => {
     const r = await reviewWithModel(

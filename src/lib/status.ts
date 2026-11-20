@@ -91,6 +91,10 @@ export type DecisionAttempt = {
   versionNumber: number;
   /** The fingerprint shown on the reviewer's screen. */
   fingerprint: string;
+  /** The date, placement and offer revision shown on the reviewer's screen. */
+  plannedDate: string;
+  placement: string;
+  offerRevisionId: string;
 };
 
 /**
@@ -109,6 +113,15 @@ export function refuseDecision(attempt: DecisionAttempt, state: AssetState): str
   }
   if (!state.currentRevisionId) {
     return "No offer terms are in effect on the planned publication date, so there is nothing to check this ad against.";
+  }
+  // A decision covers a date, a placement and an offer revision. If any of
+  // them moved while the page was open, the reviewer was looking at something else.
+  if (
+    attempt.plannedDate !== state.plannedDate ||
+    attempt.placement !== state.placement ||
+    attempt.offerRevisionId !== state.currentRevisionId
+  ) {
+    return "This ad's publication date, placement or offer terms changed since this page was loaded. Reload and review it as it stands now.";
   }
   const status = deriveStatus(state);
   if (!REVIEWER_TURN.includes(status)) {

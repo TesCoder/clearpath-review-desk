@@ -11,7 +11,13 @@ export async function POST(request: Request) {
   // POST would arrive without it anyway; this makes the rule explicit.
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
-  if (!origin || !host || new URL(origin).host !== host) {
+  let originHost: string | null = null;
+  try {
+    originHost = origin ? new URL(origin).host : null;
+  } catch {
+    originHost = null; // "null" and other unparseable origins
+  }
+  if (!host || originHost !== host) {
     return NextResponse.json({ status: "unavailable", reason: "Cross-site requests are not accepted." }, { status: 403 });
   }
   let ref = "";

@@ -7,7 +7,17 @@ import { loadAsset, loadRevisions } from "@/lib/data";
 import { db } from "@/lib/db";
 import { fingerprint } from "@/lib/fingerprint";
 import { formatDate } from "@/lib/format";
-import { MAX_ADS_PER_WORKSPACE, MAX_TITLE_CHARS, MAX_VERSIONS_PER_AD, PLACEMENTS, coverageText, isIsoDate, termsOn } from "@/lib/offers";
+import {
+  MAX_ADS_PER_WORKSPACE,
+  MAX_DECISIONS_PER_AD,
+  MAX_MOVES_PER_AD,
+  MAX_TITLE_CHARS,
+  MAX_VERSIONS_PER_AD,
+  PLACEMENTS,
+  coverageText,
+  isIsoDate,
+  termsOn,
+} from "@/lib/offers";
 import { DEMO_REVIEWER } from "@/lib/seed";
 import { refuseDecision, type DecisionKind } from "@/lib/status";
 import { ROLE_COOKIE, getRole, getWorkspaceId, resetWorkspace } from "@/lib/workspace";
@@ -50,6 +60,8 @@ export type FormState = { error: string | null };
 
 const text = (v: FormDataEntryValue | null) => (typeof v === "string" ? v : "");
 
+const isUniqueViolation = (e: unknown) => typeof e === "object" && e !== null && (e as { code?: string }).code === "23505";
+
 /**
  * A reviewer's decision on one exact version. Everything that matters is
  * checked here on the server: who is deciding, which workspace, whether the
@@ -64,6 +76,10 @@ export async function decide(_prev: FormState, formData: FormData): Promise<Form
   const comment = text(formData.get("comment")).trim();
   const anchor = text(formData.get("anchor")).trim();
   const acknowledged = formData.get("acknowledge") === "on";
+  const seenDate = text(formData.get("plannedDate")).slice(0, 10);
+  const seenPlacement = text(formData.get("placement")).slice(0, 60);
+  const seenRevision = text(formData.get("offerRevisionId")).slice(0, 60);
+  const seenMismatches = Number(text(formData.get("seenMismatches")));
 
   if (kind !== "approve" && kind !== "request_changes") return { error: "Choose Approve this version or Request changes." };
   if (!Number.isInteger(versionNumber)) return { error: "That version does not exist." };
@@ -73,13 +89,27 @@ export async function decide(_prev: FormState, formData: FormData): Promise<Form
   const asset = await loadAsset(workspaceId, ref);
   if (!asset) return { error: "That ad is not in your workspace." };
 
-  const refusal = refuseDecision({ role, kind, versionNumber, fingerprint: shownFingerprint }, asset.state);
+  const refusal = refuseDecision(
+    {
+      role,
+      kind,
+      versionNumber,
+      fingerprint: shownFingerprint,
+      plannedDate: seenDate,
+      placement: seenPlacement,
+      offerRevisionId: seenRevision,
+    },
+    asset.state,
+  );
   if (refusal) return { error: refusal };
   // The stored fingerprint must still describe the stored text.
   if (fingerprint(asset.latest.body) !== asset.latest.fingerprint) {
     return { error: "The stored text does not match its fingerprint. Nothing was recorded." };
   }
   const terms = asset.terms!; // refuseDecision returns a reason when there are none
+  if (asset.decisions.length >= MAX_DECISIONS_PER_AD) {
+    return { error: "This ad has reached the demo's limit of decisions. Use Reset demo to start over." };
+  }
 
   if (kind === "request_changes") {
     if (!comment) return { error: "Write what the marketer should change." };
@@ -90,6 +120,10 @@ export async function decide(_prev: FormState, formData: FormData): Promise<Form
   }
   if (kind === "approve") {
     const open = asset.analysis?.mismatches ?? 0;
+    // Approving despite a mismatch accepts the mismatches that were on screen, not a different set.
+    if (seenMismatches !== open) {
+      return { error: "The check results for this ad changed since this page was loaded. Reload and review it as it stands now." };
+    }
     if (open > 0 && !acknowledged) {
       return {
         error: `This version has ${open} claim${open === 1 ? "" : "s"} that ${open === 1 ? "does" : "do"} not match the offer. Tick the box to approve anyway, or request changes.`,
@@ -171,22 +205,27 @@ export async function submitAd(_prev: FormState, formData: FormData): Promise<Fo
   }
   const ref = `AD-${Number(known.last) + 1}`;
 
-  await sql.begin(async (tx) => {
-    const [asset] = await tx`
-      insert into assets (workspace_id, ref, title, affiliate_id, offer_id, placement, planned_date)
-      values (${workspaceId}, ${ref}, ${title}, ${affiliateId}, ${offerId}, ${placement}, ${plannedDate})
-      returning id
-    `;
-    const [version] = await tx`
-      insert into versions (asset_id, number, body, fingerprint, note)
-      values (${asset.id}, 1, ${body}, ${fingerprint(body)}, ${note || null})
-      returning id
-    `;
-    await tx`
-      insert into events (workspace_id, asset_id, version_id, type, actor_role, data)
-      values (${workspaceId}, ${asset.id}, ${version.id}, 'submitted', 'marketer', ${tx.json({ version: 1 })})
-    `;
-  });
+  try {
+    await sql.begin(async (tx) => {
+      const [asset] = await tx`
+        insert into assets (workspace_id, ref, title, affiliate_id, offer_id, placement, planned_date)
+        values (${workspaceId}, ${ref}, ${title}, ${affiliateId}, ${offerId}, ${placement}, ${plannedDate})
+        returning id
+      `;
+      const [version] = await tx`
+        insert into versions (asset_id, number, body, fingerprint, note)
+        values (${asset.id}, 1, ${body}, ${fingerprint(body)}, ${note || null})
+        returning id
+      `;
+      await tx`
+        insert into events (workspace_id, asset_id, version_id, type, actor_role, data)
+        values (${workspaceId}, ${asset.id}, ${version.id}, 'submitted', 'marketer', ${tx.json({ version: 1 })})
+      `;
+    });
+  } catch (e) {
+    if (isUniqueViolation(e)) return { error: "Another submission arrived at the same moment. Submit again." };
+    throw e;
+  }
   redirect(`/ads/${ref}?done=submitted`);
 }
 
@@ -207,17 +246,22 @@ export async function submitRevision(_prev: FormState, formData: FormData): Prom
   if (asset.versions.length >= MAX_VERSIONS_PER_AD) return { error: "This ad has reached the demo's version limit." };
   const number = asset.latest.number + 1;
 
-  await db().begin(async (tx) => {
-    const [version] = await tx`
-      insert into versions (asset_id, number, body, fingerprint, note)
-      values (${asset.id}, ${number}, ${body}, ${fingerprint(body)}, ${note || null})
-      returning id
-    `;
-    await tx`
-      insert into events (workspace_id, asset_id, version_id, type, actor_role, data)
-      values (${workspaceId}, ${asset.id}, ${version.id}, 'resubmitted', 'marketer', ${tx.json({ version: number })})
-    `;
-  });
+  try {
+    await db().begin(async (tx) => {
+      const [version] = await tx`
+        insert into versions (asset_id, number, body, fingerprint, note)
+        values (${asset.id}, ${number}, ${body}, ${fingerprint(body)}, ${note || null})
+        returning id
+      `;
+      await tx`
+        insert into events (workspace_id, asset_id, version_id, type, actor_role, data)
+        values (${workspaceId}, ${asset.id}, ${version.id}, 'resubmitted', 'marketer', ${tx.json({ version: number })})
+      `;
+    });
+  } catch (e) {
+    if (isUniqueViolation(e)) return { error: "A newer version was submitted at the same moment. Reload the page." };
+    throw e;
+  }
   redirect(`/ads/${encodeURIComponent(ref)}?done=resubmitted`);
 }
 
@@ -239,6 +283,10 @@ export async function moveAd(_prev: FormState, formData: FormData): Promise<Form
   }
   const uncovered = await uncoveredDate(asset.offer.id, plannedDate);
   if (uncovered) return { error: uncovered };
+  const [moves] = await db()`
+    select count(*)::int as n from events where asset_id = ${asset.id} and workspace_id = ${workspaceId} and type = 'rescheduled'
+  `;
+  if (moves.n >= MAX_MOVES_PER_AD) return { error: "This ad has reached the demo's limit of moves. Use Reset demo to start over." };
   await db().begin(async (tx) => {
     await tx`
       update assets set planned_date = ${plannedDate}, placement = ${placement}

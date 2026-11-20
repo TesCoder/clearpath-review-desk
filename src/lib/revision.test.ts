@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { OfferTerms } from "./checks";
 import { diffWords, hasChanges } from "./diff";
-import { reviewRevision } from "./revision";
+import { analyzeCopy } from "./checks";
+import { addedSentences, reviewRevision } from "./revision";
 
 const terms: OfferTerms = {
   revisionId: "pl-winter-r1",
@@ -34,8 +35,31 @@ describe("reviewing a revision", () => {
 
   it("version 3 resolves the fee request by removing the claim, with nothing new", () => {
     const r = reviewRevision(V2, V3, [feeRequest], terms);
-    expect(r.outcomes[0]).toMatchObject({ outcome: "resolved", detail: "The claim was removed." });
+    expect(r.outcomes[0]).toMatchObject({ outcome: "resolved", detail: "The claim was removed, and nothing was added in its place." });
     expect(r.newClaims).toEqual([]);
+  });
+
+  it("a reworded false claim is never marked resolved", () => {
+    const waiver = "Compare ClearPath personal loans. Rates from 8.99% APR. We waive the origination fee for every borrower.";
+    const r = reviewRevision(V2, waiver, [feeRequest], terms);
+    expect(r.outcomes[0].outcome).toBe("changed");
+    expect(r.outcomes[0].detail).toContain("Confirm the revision addresses your request");
+  });
+
+  it("the same request is resolved when the sentence is deleted, and not when it is reworded", () => {
+    const deleted = reviewRevision(V2, V3, [feeRequest], terms).outcomes[0].outcome;
+    const reworded = reviewRevision(V2, V3 + " Fee-free for all.", [feeRequest], terms).outcomes[0].outcome;
+    expect([deleted, reworded]).toEqual(["resolved", "changed"]);
+  });
+
+  it("a removed claim with other words added elsewhere asks for confirmation", () => {
+    const r = reviewRevision(V2, "Compare ClearPath personal loans today. Rates from 8.99% APR.", [feeRequest], terms);
+    expect(r.outcomes[0].outcome).toBe("changed");
+  });
+
+  it("a corrected fee that the offer confirms is resolved", () => {
+    const r = reviewRevision(V2, V3 + " A 2% origination fee applies.", [feeRequest], terms);
+    expect(r.outcomes[0]).toMatchObject({ outcome: "resolved", detail: 'The ad now says "2%", which matches the offer.' });
   });
 
   it("says so when the flagged words are still there", () => {
@@ -73,5 +97,27 @@ describe("word differences", () => {
     const parts = diffWords(V2, V3);
     expect(parts.filter((p) => p.type !== "added").map((p) => p.text).join("")).toBe(V2);
     expect(parts.filter((p) => p.type !== "removed").map((p) => p.text).join("")).toBe(V3);
+  });
+});
+
+describe("added wording the number check does not cover", () => {
+  const spans = (text: string) => analyzeCopy(text, terms).claims;
+
+  it("returns the whole reworded sentence", () => {
+    const waiver = "Compare ClearPath personal loans. Rates from 8.99% APR. We waive the origination fee for every borrower.";
+    expect(addedSentences(V2, waiver, spans(waiver))).toEqual(["We waive the origination fee for every borrower."]);
+  });
+
+  it("leaves out a corrected figure and a new claim the check already covers", () => {
+    expect(addedSentences(V1, V2, spans(V2))).toEqual([]);
+  });
+
+  it("returns nothing when words were only removed", () => {
+    expect(addedSentences(V2, V3, spans(V3))).toEqual([]);
+  });
+
+  it("returns a new sentence with no number in it", () => {
+    const next = V3 + " Funds as soon as the next business day.";
+    expect(addedSentences(V3, next, spans(next))).toEqual(["Funds as soon as the next business day."]);
   });
 });

@@ -70,7 +70,15 @@ describe("status", () => {
 });
 
 describe("the server's rule for decisions", () => {
-  const attempt = { role: "reviewer" as const, kind: "approve" as const, versionNumber: 1, fingerprint: "aaa" };
+  const attempt = {
+    role: "reviewer" as const,
+    kind: "approve" as const,
+    versionNumber: 1,
+    fingerprint: "aaa",
+    plannedDate: "2026-12-08",
+    placement: "Comparison site listing",
+    offerRevisionId: "pl-winter-r1",
+  };
 
   it("allows a reviewer to decide on the current version", () => {
     expect(refuseDecision(attempt, base)).toBeNull();
@@ -87,6 +95,13 @@ describe("the server's rule for decisions", () => {
 
   it("refuses when the fingerprint on the page is not the stored one", () => {
     expect(refuseDecision({ ...attempt, fingerprint: "zzz" }, base)).toMatch(/text changed/);
+  });
+
+  it("refuses when the date, placement or offer revision moved while the page was open", () => {
+    const moved = { ...base, plannedDate: "2027-01-05", currentRevisionId: "pl-winter-r2" };
+    expect(refuseDecision(attempt, moved)).toMatch(/changed since this page was loaded/);
+    expect(refuseDecision(attempt, { ...base, placement: "Social post" })).toMatch(/changed since this page was loaded/);
+    expect(refuseDecision({ ...attempt, offerRevisionId: "pl-winter-r2" }, base)).toMatch(/changed since this page was loaded/);
   });
 
   it("refuses a second decision on an approved version", () => {

@@ -1,5 +1,17 @@
 // Code-only checks on ad copy. No model is involved anywhere in this file.
 //
+// Decision-logic rounds: 2 (llm-first-decision-architecture.mdc section 6).
+// Decision counted: whether a claim in ad copy "matches" the offer, "does not
+// match", or "needs the reviewer".
+//   Round 1, 2026-11-20: the approver's test of the submit form found a rate
+//     written in words read as nothing to compare. Added: percentages written
+//     out in words.
+//   Round 2, 2026-11-20: an independent review found more forms read wrongly
+//     or not at all (ranges, unusual digits and percent signs, "no-fee").
+//     Not implemented. At two rounds the logic stops growing until the
+//     approver chooses the split between exact forms in code and everything
+//     else held for the reviewer.
+//
 // What code decides: explicit numbers (an APR or a fee percentage, in digits
 // or written out in words, and "no origination fee") compared with the offer
 // sheet. Looser wording ("single-digit rates", "rock-bottom rates") is left to

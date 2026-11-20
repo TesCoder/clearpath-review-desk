@@ -16,6 +16,10 @@ type Props = {
   adRef: string;
   versionNumber: number;
   fingerprint: string;
+  /** What the decision covers, as shown on this page. The server refuses if any of it has moved. */
+  plannedDate: string;
+  placement: string;
+  offerRevisionId: string;
   anchors: Anchor[];
   mismatches: number;
   /** One sentence saying exactly what an approval covers. */
@@ -81,6 +85,10 @@ export function DecisionPanel(props: Props) {
       <input type="hidden" name="ref" value={props.adRef} />
       <input type="hidden" name="versionNumber" value={props.versionNumber} />
       <input type="hidden" name="fingerprint" value={props.fingerprint} />
+      <input type="hidden" name="plannedDate" value={props.plannedDate} />
+      <input type="hidden" name="placement" value={props.placement} />
+      <input type="hidden" name="offerRevisionId" value={props.offerRevisionId} />
+      <input type="hidden" name="seenMismatches" value={mismatches} />
       <input type="hidden" name="kind" value={mode} />
       <input type="hidden" name="anchor" value={mode === "request_changes" ? anchor : ""} />
 

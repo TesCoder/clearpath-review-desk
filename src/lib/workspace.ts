@@ -36,6 +36,10 @@ export async function getWorkspaceId(): Promise<string> {
       returning id
     `;
     if (!rows.length) return null; // another request for this visitor got there first
+    // Housekeeping on a public demo: a workspace lives as long as its cookie
+    // (14 days). Older ones, and old call records, are removed as new ones arrive.
+    await tx`delete from workspaces where created_at < now() - interval '14 days'`;
+    await tx`delete from ai_calls where created_at < now() - interval '7 days'`;
     await seedWorkspace(tx, rows[0].id as string);
     return rows[0].id as string;
   });

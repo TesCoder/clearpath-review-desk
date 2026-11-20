@@ -141,6 +141,15 @@ create table if not exists ai_calls (
 );
 create index if not exists ai_calls_created_idx on ai_calls (created_at);
 
+-- A model call in flight for one text. It stops two requests for the same ad
+-- from both calling the model, and is removed when the call ends.
+create table if not exists ai_pending (
+  cache_key   text primary key,
+  started_at  timestamptz not null default now()
+);
+
+create index if not exists workspaces_created_idx on workspaces (created_at);
+
 -- Reference data -------------------------------------------------------------
 
 insert into offers (id, product, campaign) values

@@ -23,6 +23,8 @@ export function isIsoDate(value: string): boolean {
 export const MAX_TITLE_CHARS = 80;
 export const MAX_ADS_PER_WORKSPACE = 40;
 export const MAX_VERSIONS_PER_AD = 20;
+export const MAX_DECISIONS_PER_AD = 40;
+export const MAX_MOVES_PER_AD = 30;
 
 function nextDay(isoDate: string): string {
   const d = new Date(`${isoDate}T00:00:00Z`);

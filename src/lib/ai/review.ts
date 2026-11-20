@@ -135,12 +135,39 @@ export async function reviewWithModel(
   dropped += Math.max(0, output.findings.length - MAX_FINDINGS);
   findings.sort((a, b) => a.start - b.start);
 
+  return finalizeReview(copy, findings, dropped, model.name);
+}
+
+const MAX_COVERING_QUOTE = 120;
+
+/**
+ * Does this finding actually report this code-found claim? Only a short rate
+ * or fee finding that contains the claim counts, or one that is most of it.
+ * A finding that quotes the whole ad, or touches one character of the claim,
+ * does not: otherwise a steered model could "cover" every claim with one
+ * long quote and be marked complete while saying nothing.
+ */
+function reports(f: AiFinding, c: { start: number; end: number }): boolean {
+  if (f.kind !== "rate" && f.kind !== "fee") return false;
+  if (f.end - f.start > MAX_COVERING_QUOTE) return false;
+  const contains = f.start <= c.start && f.end >= c.end;
+  const overlap = Math.min(f.end, c.end) - Math.max(f.start, c.start);
+  const isMostOfIt = f.start >= c.start && f.end <= c.end && overlap * 2 >= c.end - c.start;
+  return contains || isMostOfIt;
+}
+
+/**
+ * Turns verified findings into a review. Runs when the model answers and
+ * again every time a stored result is read, so the cross-check against the
+ * code's claims always uses the current checks, never a frozen copy.
+ */
+export function finalizeReview(copy: string, findings: AiFinding[], dropped: number, modelName: string): AiReview {
   // The model was told to report every explicit rate and fee. If it left out
   // one the code check found, something steered it or it missed it: either
   // way the reviewer should not read its answer as complete.
   const missedByModel = findClaims(copy)
     .filter((c) => c.kind !== "unclassified")
-    .filter((c) => !findings.some((f) => f.start < c.end && c.start < f.end))
+    .filter((c) => !findings.some((f) => reports(f, c)))
     .map((c) => c.quote);
 
   const reasons: string[] = [];
@@ -160,6 +187,6 @@ export async function reviewWithModel(
     dropped,
     missedByModel,
     reason: reasons.length ? reasons.join(" ") : null,
-    model: model.name,
+    model: modelName,
   };
 }
