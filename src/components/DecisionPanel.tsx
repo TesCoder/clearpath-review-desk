@@ -21,6 +21,8 @@ type Props = {
   placement: string;
   offerRevisionId: string;
   anchors: Anchor[];
+  /** How many AI findings are on the page beyond the code checks. */
+  aiFindings: number;
   mismatches: number;
   /** One sentence saying exactly what an approval covers. */
   covers: string;
@@ -34,8 +36,13 @@ export function DecisionPanel(props: Props) {
   const { anchors, mismatches } = props;
   const firstFlag = anchors.find((a) => a.flagged) ?? null;
   const [state, action, pending] = useActionState(decide, initial);
-  // With an open mismatch, the likely next step is a request, so start there.
-  const [mode, setMode] = useState<"approve" | "request_changes">(firstFlag ? "request_changes" : "approve");
+  // With an open code flag, the likely next step is a request, so start there.
+  // With only AI findings to read, nothing is preselected: the reviewer picks,
+  // so the screen never leans toward Approve while something is unread.
+  // With nothing flagged at all, start on Approve.
+  const [mode, setMode] = useState<"approve" | "request_changes" | null>(
+    firstFlag ? "request_changes" : props.aiFindings > 0 ? null : "approve",
+  );
   const [anchor, setAnchor] = useState(firstFlag?.quote ?? "");
   const [comment, setComment] = useState(firstFlag?.draft ?? "");
   const [edited, setEdited] = useState(false);
@@ -65,7 +72,7 @@ export function DecisionPanel(props: Props) {
     if (!edited) setComment(a?.draft ?? "");
   };
 
-  const tab = (value: typeof mode, label: string) => (
+  const tab = (value: "approve" | "request_changes", label: string) => (
     <button
       type="button"
       onClick={() => setMode(value)}
@@ -89,7 +96,7 @@ export function DecisionPanel(props: Props) {
       <input type="hidden" name="placement" value={props.placement} />
       <input type="hidden" name="offerRevisionId" value={props.offerRevisionId} />
       <input type="hidden" name="seenMismatches" value={mismatches} />
-      <input type="hidden" name="kind" value={mode} />
+      <input type="hidden" name="kind" value={mode ?? ""} />
       <input type="hidden" name="anchor" value={mode === "request_changes" ? anchor : ""} />
 
       <h2 className="text-base font-semibold">Your decision on version {props.versionNumber}</h2>
@@ -98,7 +105,12 @@ export function DecisionPanel(props: Props) {
         {tab("approve", "Approve this version")}
       </div>
 
-      {mode === "request_changes" ? (
+      {mode === null ? (
+        <p className="mt-4 text-sm text-slate-700">
+          The AI pointed to {props.aiFindings === 1 ? "one thing" : `${props.aiFindings} things`} in this ad that the number
+          check does not cover. Read {props.aiFindings === 1 ? "it" : "them"} above, then choose how to decide.
+        </p>
+      ) : mode === "request_changes" ? (
         <div className="mt-4 space-y-3">
           <fieldset>
             <legend className="text-sm font-medium text-slate-800">What is the request about?</legend>

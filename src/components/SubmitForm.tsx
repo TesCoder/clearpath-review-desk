@@ -8,6 +8,7 @@ import { MAX_TITLE_CHARS, PLACEMENTS, coverageText, isIsoDate, termsOn, type Rev
 import { CopyEditor } from "./CopyEditor";
 
 type Option = { id: string; label: string };
+type OfferOption = Option & { supported: boolean };
 
 const field =
   "mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-600";
@@ -19,12 +20,12 @@ export function SubmitForm({
   defaultDate,
 }: {
   affiliates: Option[];
-  offers: Option[];
+  offers: OfferOption[];
   revisions: RevisionTerms[];
   defaultDate: string;
 }) {
   const [state, action, pending] = useActionState<FormState, FormData>(submitAd, { error: null });
-  const [offerId, setOfferId] = useState(offers[0]?.id ?? "");
+  const [offerId, setOfferId] = useState(offers.find((o) => o.supported)?.id ?? "");
   const [date, setDate] = useState(defaultDate);
   const [body, setBody] = useState("");
   const terms = isIsoDate(date) ? termsOn(revisions, offerId, date) : null;
@@ -60,11 +61,15 @@ export function SubmitForm({
           <span className="text-sm font-medium text-slate-800">ClearPath offer it promotes</span>
           <select name="offerId" value={offerId} onChange={(e) => setOfferId(e.target.value)} className={field} required>
             {offers.map((o) => (
-              <option key={o.id} value={o.id}>
+              <option key={o.id} value={o.id} disabled={!o.supported}>
                 {o.label}
+                {o.supported ? "" : " (not set up yet)"}
               </option>
             ))}
           </select>
+          <span className="mt-1 block text-xs text-slate-500">
+            This desk is set up for personal-loan ads. Credit card and mortgage ads are not set up yet.
+          </span>
           {terms ? (
             <span className="mt-1 block text-xs text-slate-500">
               Terms in effect on {formatDate(date)}: revision {terms.revision}

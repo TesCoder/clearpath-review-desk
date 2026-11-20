@@ -12,6 +12,13 @@ export const HERO_V1 = "Compare ClearPath personal loans. Rates from 6.99% APR."
 export const HERO_V2 = "Compare ClearPath personal loans. Rates from 8.99% APR. No origination fee.";
 export const HERO_V3 = "Compare ClearPath personal loans. Rates from 8.99% APR.";
 
+// The request on version 1 is the one the app drafts for that rate, as a
+// reviewer would send it unedited. A test keeps the two in step.
+export const HERO_V1_REQUEST = {
+  anchor: "6.99% APR",
+  body: "The ad says 6.99% APR. The lowest APR on the Winter Personal Loan offer from Nov 1, 2026 is 8.99%. Please change it to 8.99% APR.",
+};
+
 type SeedVersion = {
   body: string;
   note: string | null;
@@ -55,10 +62,7 @@ const SEED: SeedAsset[] = [
           kind: "request_changes",
           hoursAgo: 50,
           revisionId: "pl-winter-r1",
-          comment: {
-            anchor: "6.99% APR",
-            body: "The lowest APR on the Winter Personal Loan offer is 8.99% for a December publication date. Please change the rate to 8.99% APR.",
-          },
+          comment: HERO_V1_REQUEST,
         },
       },
       {

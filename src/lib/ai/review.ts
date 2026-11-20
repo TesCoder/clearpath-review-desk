@@ -8,6 +8,7 @@
 //   4. Any failure or gap makes the review "incomplete". It is never "clean".
 
 import { findClaims, type OfferTerms } from "../checks";
+import { findInstructionText } from "../injection";
 import { FINDING_KINDS, ModelError, type AiFinding, type AiReview, type ClaimModel, type ModelRequest } from "./types";
 
 const MAX_FINDINGS = 12;
@@ -83,7 +84,7 @@ export async function reviewWithModel(
   placement: string,
   model: ClaimModel,
 ): Promise<AiReview> {
-  const base = { findings: [] as AiFinding[], dropped: 0, missedByModel: [] as string[], model: model.name };
+  const base = { findings: [] as AiFinding[], dropped: 0, missedByModel: [] as string[], model: model.name, addressesReviewer: false, answered: false };
   let output;
   try {
     output = await model.find(buildRequest(copy, terms, placement));
@@ -135,7 +136,7 @@ export async function reviewWithModel(
   dropped += Math.max(0, output.findings.length - MAX_FINDINGS);
   findings.sort((a, b) => a.start - b.start);
 
-  return finalizeReview(copy, findings, dropped, model.name);
+  return finalizeReview(copy, findings, dropped, model.name, output.copy_addresses_reviewer === true);
 }
 
 const MAX_COVERING_QUOTE = 120;
@@ -161,7 +162,13 @@ function reports(f: AiFinding, c: { start: number; end: number }): boolean {
  * again every time a stored result is read, so the cross-check against the
  * code's claims always uses the current checks, never a frozen copy.
  */
-export function finalizeReview(copy: string, findings: AiFinding[], dropped: number, modelName: string): AiReview {
+export function finalizeReview(
+  copy: string,
+  findings: AiFinding[],
+  dropped: number,
+  modelName: string,
+  addressesReviewer = false,
+): AiReview {
   // The model was told to report every explicit rate and fee. If it left out
   // one the code check found, something steered it or it missed it: either
   // way the reviewer should not read its answer as complete.
@@ -181,6 +188,12 @@ export function finalizeReview(copy: string, findings: AiFinding[], dropped: num
       `The model did not report ${missedByModel.length === 1 ? "a claim" : `${missedByModel.length} claims`} the code check found (${missedByModel.map((q) => `"${q}"`).join(", ")}).`,
     );
   }
+  // Copy that talks to the reviewer or to an AI, answered with nothing at all,
+  // is the shape of a steered model. The code check for such text and the
+  // model's own flag are both used: either one is enough.
+  if (findings.length === 0 && (addressesReviewer || findInstructionText(copy).length > 0)) {
+    reasons.push("The copy contains text addressed to the reviewer or to an AI, and the model reported nothing at all.");
+  }
   return {
     status: reasons.length ? "incomplete" : "complete",
     findings,
@@ -188,5 +201,7 @@ export function finalizeReview(copy: string, findings: AiFinding[], dropped: num
     missedByModel,
     reason: reasons.length ? reasons.join(" ") : null,
     model: modelName,
+    addressesReviewer,
+    answered: true,
   };
 }

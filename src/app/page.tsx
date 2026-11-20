@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { StatusPill } from "@/components/StatusPill";
+import { summarizeAi, type AiSummary } from "@/lib/ai/display";
+import { getStoredReviews } from "@/lib/ai/store";
 import { loadAssets, type AssetView } from "@/lib/data";
 import { formatDate, timeAgo } from "@/lib/format";
 import { REVIEWER_TURN } from "@/lib/status";
@@ -19,7 +21,7 @@ function Flags({ a }: { a: AssetView }) {
   const n = a.flags;
   if (!a.terms)
     return <span className="text-amber-800">No offer terms on that date</span>;
-  if (n === 0) return <span className="text-slate-500">No open flags</span>;
+  if (n === 0) return <span className="text-slate-500">No offer-check flags</span>;
   return (
     <span className="font-medium text-red-700">
       {n} flag{n === 1 ? "" : "s"} to check
@@ -27,13 +29,29 @@ function Flags({ a }: { a: AssetView }) {
   );
 }
 
+// The AI's read is shown beside the offer check, never folded into it: "no
+// offer-check flags" must not read as "nothing left to look at".
+function Ai({ summary }: { summary: AiSummary }) {
+  if (summary.state === "not_run") return <span className="text-slate-500">AI: not run yet</span>;
+  const n = summary.toRead;
+  const things = `${n} to read`;
+  if (summary.state === "incomplete") {
+    return <span className="font-medium text-amber-800">AI: incomplete{n ? `, ${things}` : ""}</span>;
+  }
+  if (n === 0) return <span className="text-slate-500">AI: nothing reported</span>;
+  return <span className="font-medium text-violet-800">AI: {things}</span>;
+}
+
 function Rows({
   items,
   waitingLabel,
+  ai,
 }: {
   items: AssetView[];
   waitingLabel: boolean;
+  ai: Map<string, AiSummary>;
 }) {
+  const aiFor = (a: AssetView): AiSummary => ai.get(a.id) ?? { state: "not_run" };
   return (
     <>
       {/* Narrow screens: one card per ad, with the status and flags under the title. */}
@@ -52,6 +70,7 @@ function Rows({
               <span className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                 <StatusPill status={a.status} />
                 <Flags a={a} />
+                <Ai summary={aiFor(a)} />
               </span>
               <span className="mt-1 block text-sm text-slate-600">
                 Version {a.latest.number} · publishing{" "}
@@ -64,7 +83,7 @@ function Rows({
         ))}
       </ul>
       <div className="hidden overflow-x-auto rounded-lg border border-slate-200 bg-white md:block">
-        <table className="w-full min-w-[820px] text-left text-sm">
+        <table className="w-full min-w-[940px] text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-4 py-2 font-medium">Ad</th>
@@ -76,7 +95,8 @@ function Rows({
               <th className="px-4 py-2 font-medium">
                 {waitingLabel ? "Waiting since" : "Last activity"}
               </th>
-              <th className="px-4 py-2 font-medium">Open flags</th>
+              <th className="px-4 py-2 font-medium">Offer check</th>
+              <th className="px-4 py-2 font-medium">AI read</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -109,6 +129,9 @@ function Rows({
                 <td className="px-4 py-3">
                   <Flags a={a} />
                 </td>
+                <td className="px-4 py-3" data-cell="ai" data-ai={aiFor(a).state}>
+                  <Ai summary={aiFor(a)} />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -121,6 +144,10 @@ function Rows({
 export default async function Queue(props: PageProps<"/">) {
   const { reset } = await props.searchParams;
   const assets = await loadAssets(await getWorkspaceId());
+  const reviews = await getStoredReviews(assets);
+  const ai = new Map<string, AiSummary>(
+    assets.map((a) => [a.id, summarizeAi(reviews.get(a.id) ?? null, a.analysis?.claims ?? [])]),
+  );
   const waiting = assets
     .filter((a) => REVIEWER_TURN.includes(a.status))
     .sort(queueOrder);
@@ -142,7 +169,7 @@ export default async function Queue(props: PageProps<"/">) {
       </p>
       <div className="mt-4">
         {waiting.length ? (
-          <Rows items={waiting} waitingLabel />
+          <Rows items={waiting} waitingLabel ai={ai} />
         ) : (
           <p className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm text-slate-600">
             Nothing is waiting for you. Switch to the Marketer view to submit an
@@ -157,7 +184,7 @@ export default async function Queue(props: PageProps<"/">) {
             Approved ads, and ads back with the marketer.
           </p>
           <div className="mt-4">
-            <Rows items={rest} waitingLabel={false} />
+            <Rows items={rest} waitingLabel={false} ai={ai} />
           </div>
         </>
       ) : null}

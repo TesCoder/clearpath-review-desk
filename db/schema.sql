@@ -132,6 +132,8 @@ create table if not exists ai_reviews (
   primary key (fingerprint, offer_revision_id, placement, prompt_version)
 );
 
+alter table ai_reviews add column if not exists addresses_reviewer boolean not null default false;
+
 -- One row per model call, to cap spend on a public demo.
 create table if not exists ai_calls (
   id            bigserial primary key,

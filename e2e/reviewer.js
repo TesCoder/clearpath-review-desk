@@ -1,6 +1,7 @@
 // The reviewer flow: queue, review screen, a request, an approval, the reschedule case, reset, phone width.
 // Runs in a fresh headless browser. Usage: BASE=https://your-site npm run e2e   (default http://localhost:3000)
 const { chromium } = require('playwright');
+const { ok, finish, approve, fail } = require('./harness');
 const BASE = process.env.BASE || 'http://localhost:3000';
 const SHOTS = process.env.SHOTS || require('node:os').tmpdir();
 (async () => {
@@ -10,7 +11,6 @@ const SHOTS = process.env.SHOTS || require('node:os').tmpdir();
   const problems = [];
   page.on('console', m => { if (m.type() === 'error') problems.push('console: ' + m.text()); });
   page.on('pageerror', e => problems.push('pageerror: ' + e.message));
-  const ok = (name, cond) => console.log((cond ? 'PASS ' : 'FAIL ') + name);
 
   let r = await page.goto(BASE + '/');
   ok('queue loads 200', r.status() === 200);
@@ -39,10 +39,9 @@ const SHOTS = process.env.SHOTS || require('node:os').tmpdir();
   await page.screenshot({ path: SHOTS + '/3-requested.png', fullPage: true });
 
   await page.goto(BASE + '/ads/AD-1042');
-  await page.click('button:has-text("Approve this version")');
-  await page.click('button[type=submit]:has-text("Approve version 1")');
+  ok('an ad with nothing flagged says "No detected offer mismatch", not "clean"', /No detected offer mismatch/.test(await page.innerText('main')));
+  await approve(page, 1);
   await page.waitForSelector('text=Approved copy');
-  ok('clean ad approved', true);
   await page.screenshot({ path: SHOTS + '/4-approved.png', fullPage: true });
 
   await page.goto(BASE + '/ads/AD-1033');
@@ -70,6 +69,6 @@ const SHOTS = process.env.SHOTS || require('node:os').tmpdir();
   ok('no sideways scroll on phone (' + overflow + 'px)', overflow <= 1);
   await page.screenshot({ path: SHOTS + '/6-phone.png', fullPage: true });
 
-  console.log('problems:', problems.length ? problems : 'none');
   await browser.close();
-})().catch(e => { console.error('SCRIPT ERROR', e.message); process.exit(1); });
+  finish(problems);
+})().catch(fail);

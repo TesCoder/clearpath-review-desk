@@ -1,14 +1,24 @@
 // What a reviewer needs to know about a revision without rereading the ad:
 // did it answer each earlier request, and did it bring in anything new?
 
-import { analyzeCopy, type Check, type ClaimKind, type OfferTerms } from "./checks";
+import { analyzeCopy, draftRequest, type Check, type ClaimKind, type OfferTerms } from "./checks";
 import { diffWords } from "./diff";
 
 export type PriorRequest = { anchorText: string | null; body: string };
 
 export type RequestOutcome = {
   request: PriorRequest;
-  outcome: "resolved" | "not_resolved" | "unchanged" | "changed";
+  /**
+   * resolved: the whole request is known to be met. Only said when the request
+   *   was the app's own drafted comment about one claim, sent unedited, and
+   *   that claim now checks out or was deleted with nothing added.
+   * check_passes: the flagged figure now checks out or was deleted, but the
+   *   reviewer wrote the request in their own words, so it may ask for more
+   *   than the number check can see. The reviewer confirms the rest.
+   * not_resolved / unchanged: the flagged claim is still wrong or still there.
+   * changed: the wording changed in a way the check cannot verify.
+   */
+  outcome: "resolved" | "check_passes" | "not_resolved" | "unchanged" | "changed";
   detail: string;
 };
 
@@ -48,17 +58,30 @@ export function reviewRevision(
           detail: stillThere ? `The ad still says "${anchor}".` : open[0].message,
         };
       }
-      // "Resolved" is said only when it can be verified: either the offer
+      // A figure "checks out" only when it can be verified: either the offer
       // data confirms the corrected value, or the claim was deleted and
       // nothing was written in its place. A claim reworded into something
-      // the number check cannot read ("we waive the fee") is not resolved:
+      // the number check cannot read ("we waive the fee") does not check out:
       // the reviewer is asked to confirm.
+      // A request written in the reviewer's own words can ask for more than
+      // this one figure ("correct the APR and remove guaranteed approval").
+      // Code cannot read that, so it says only what it verified and asks the
+      // reviewer to confirm the rest. The one exception is the app's own
+      // drafted request, sent unedited: it is about this claim and nothing else.
+      const onlyAboutThisClaim = request.body.trim() === draftRequest(flagged);
+      const label = fam === "apr" ? "rate" : "fee";
       const verified = sameFamily.find((c) => c.status === "ok");
       if (verified) {
-        return { request, outcome: "resolved", detail: `The ad now says "${verified.claim.quote}", which matches the offer.` };
+        const fact = `The ad now says "${verified.claim.quote}", which matches the offer.`;
+        return onlyAboutThisClaim
+          ? { request, outcome: "resolved", detail: fact }
+          : { request, outcome: "check_passes", detail: `${fact} That is all the ${label} check can confirm. Confirm the rest of your request.` };
       }
       if (!stillThere && onlyRemovals) {
-        return { request, outcome: "resolved", detail: "The claim was removed, and nothing was added in its place." };
+        const fact = "The claim was removed, and nothing was added in its place.";
+        return onlyAboutThisClaim
+          ? { request, outcome: "resolved", detail: fact }
+          : { request, outcome: "check_passes", detail: `${fact} Confirm the rest of your request.` };
       }
       return {
         request,

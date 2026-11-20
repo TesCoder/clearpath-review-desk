@@ -22,12 +22,38 @@ const cacheVersion = () => `${PROMPT_VERSION}|${getClaimModel().name}`;
 export async function getStoredReview(asset: AssetView): Promise<AiReview | null> {
   if (!asset.terms) return null;
   const rows = await db()`
-    select findings, dropped, model from ai_reviews
+    select findings, dropped, model, addresses_reviewer from ai_reviews
     where fingerprint = ${asset.latest.fingerprint} and offer_revision_id = ${asset.terms.revisionId}
       and placement = ${asset.placement} and prompt_version = ${cacheVersion()}
   `;
   if (!rows.length) return null;
-  return finalizeReview(asset.latest.body, rows[0].findings as AiFinding[], rows[0].dropped, rows[0].model);
+  return finalizeReview(
+    asset.latest.body,
+    rows[0].findings as AiFinding[],
+    rows[0].dropped,
+    rows[0].model,
+    rows[0].addresses_reviewer === true,
+  );
+}
+
+/** Stored results for many ads at once, for the queue. Keyed by ad id. */
+export async function getStoredReviews(assets: AssetView[]): Promise<Map<string, AiReview>> {
+  const out = new Map<string, AiReview>();
+  const withTerms = assets.filter((a) => a.terms);
+  if (!withTerms.length) return out;
+  const rows = await db()`
+    select fingerprint, offer_revision_id, placement, findings, dropped, model, addresses_reviewer from ai_reviews
+    where prompt_version = ${cacheVersion()} and fingerprint in ${db()(withTerms.map((a) => a.latest.fingerprint))}
+  `;
+  for (const a of withTerms) {
+    const row = rows.find(
+      (r) => r.fingerprint === a.latest.fingerprint && r.offer_revision_id === a.terms!.revisionId && r.placement === a.placement,
+    );
+    if (row) {
+      out.set(a.id, finalizeReview(a.latest.body, row.findings as AiFinding[], row.dropped, row.model, row.addresses_reviewer === true));
+    }
+  }
+  return out;
 }
 
 const unavailable = (reason: string): AiReview => ({
@@ -37,6 +63,8 @@ const unavailable = (reason: string): AiReview => ({
   missedByModel: [],
   reason,
   model: getClaimModel().name,
+  addressesReviewer: false,
+  answered: false,
 });
 
 /** Runs the claim finder on the ad's latest version, unless a result is already stored. */
@@ -83,13 +111,13 @@ export async function runReview(workspaceId: string, asset: AssetView): Promise<
     // Store only what the model actually answered. A failed call (a decline, a
     // cut-off or malformed answer, an outage) is not kept, so one bad moment
     // does not mark this ad incomplete for every later visitor.
-    const modelAnswered = review.status === "complete" || review.dropped > 0 || review.findings.length > 0 || review.missedByModel.length > 0;
-    if (modelAnswered) {
+    if (review.answered) {
       await sql`
-        insert into ai_reviews (fingerprint, offer_revision_id, placement, prompt_version, status, findings, dropped, missed, reason, model)
+        insert into ai_reviews
+          (fingerprint, offer_revision_id, placement, prompt_version, status, findings, dropped, missed, reason, model, addresses_reviewer)
         values (${asset.latest.fingerprint}, ${terms.revisionId}, ${asset.placement}, ${cacheVersion()},
                 ${review.status}, ${sql.json(review.findings)}, ${review.dropped}, ${sql.json(review.missedByModel)},
-                ${review.reason}, ${review.model})
+                ${review.reason}, ${review.model}, ${review.addressesReviewer})
         on conflict do nothing
       `;
     }

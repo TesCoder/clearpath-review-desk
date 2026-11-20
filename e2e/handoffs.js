@@ -1,6 +1,7 @@
 // Following one ad across roles without a list, refusing a date with no offer terms, and the phone layout.
 // Runs in a fresh headless browser. Usage: BASE=https://your-site npm run e2e   (default http://localhost:3000)
 const { chromium } = require('playwright');
+const { ok, finish, approve, fail } = require('./harness');
 const BASE = process.env.BASE || 'http://localhost:3000';
 const SHOTS = process.env.SHOTS || require('node:os').tmpdir();
 const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
@@ -11,7 +12,6 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
   const problems = [];
   page.on('console', m => { if (m.type() === 'error') problems.push('console: ' + m.text().slice(0, 200)); });
   page.on('pageerror', e => problems.push('pageerror: ' + e.message));
-  const ok = (name, cond) => console.log((cond ? 'PASS ' : 'FAIL ') + name);
   const onAd = async () => { await page.waitForURL('**/ads/AD-1041**'); await page.waitForSelector('h1:has-text("AD-1041")'); };
 
   // 2. Follow one ad from request to approved copy without searching a list.
@@ -28,9 +28,9 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
   await page.click('button:has-text("Send version 3 for review")');
   await page.waitForSelector('text=Sent for review as version 3');
   await page.click('button:has-text("Review version 3 as the reviewer")');
-  await page.waitForSelector('button[type=submit]:has-text("Approve version 3")');
+  await page.waitForSelector('form[aria-label="Your decision"]');
   ok('submit → reviewer view of the same ad, no list', page.url().includes('/ads/AD-1041'));
-  await page.click('button[type=submit]:has-text("Approve version 3")');
+  await approve(page, 3);
   await page.waitForSelector('text=Approved copy');
   await page.click('button:has-text("See it as the marketer")');
   await page.waitForSelector('text=Copy approved text');
@@ -54,9 +54,7 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
   await page.click('button:has-text("Move this ad")');
   await page.waitForSelector('text=back in the review queue');
   await page.click('button:has-text("Review it as the reviewer")');
-  await page.waitForSelector('button[type=submit]:has-text("Approve version 3")');
-  await page.click('button:has-text("Approve this version")');
-  await page.click('button[type=submit]:has-text("Approve version 3")');
+  await approve(page, 3);
   await page.waitForSelector('text=Approved copy');
   ok('corrected date completes review without a reset', /for Dec 20, 2026/.test(await page.innerText('main')));
   // the submit form also refuses an uncovered date
@@ -87,6 +85,6 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
   ok('no "asa" spacing slip', !/\basa\b/.test(await page.innerText('main')));
   await page.screenshot({ path: SHOTS + '/21-phone-ad.png', fullPage: true });
 
-  console.log('problems:', problems.length ? problems : 'none');
   await browser.close();
-})().catch(e => { console.error('SCRIPT ERROR', e.message.split('\n')[0]); process.exit(1); });
+  finish(problems);
+})().catch(fail);

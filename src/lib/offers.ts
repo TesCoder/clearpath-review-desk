@@ -20,6 +20,9 @@ export function isIsoDate(value: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
 }
 
+/** The one product this desk is set up to review. The others exist in the offer list as company context. */
+export const SUPPORTED_PRODUCT = "Personal loan";
+
 export const MAX_TITLE_CHARS = 80;
 export const MAX_ADS_PER_WORKSPACE = 40;
 export const MAX_VERSIONS_PER_AD = 20;

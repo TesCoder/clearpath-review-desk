@@ -1,4 +1,5 @@
 import "server-only";
+import type postgres from "postgres";
 import { db } from "./db";
 import { analyzeCopy, type CopyAnalysis, type OfferTerms } from "./checks";
 import { findInstructionText, type InstructionFinding } from "./injection";
@@ -76,8 +77,11 @@ function toTerms(r: RevisionRow): OfferTerms {
 /** Every revision of every offer. Trusted reference data, the same for all visitors. */
 export type { RevisionTerms };
 
-export async function loadRevisions(): Promise<RevisionTerms[]> {
-  const rows = await db()`
+/** The pool, or a transaction: reads inside a transaction see what that transaction has locked. */
+export type Executor = postgres.Sql | postgres.TransactionSql;
+
+export async function loadRevisions(sql: Executor = db()): Promise<RevisionTerms[]> {
+  const rows = await sql`
     select r.id, r.offer_id, r.revision, r.effective_from::text, r.effective_to::text,
            r.apr_min, r.apr_max, r.origination_fee_pct, r.term_min_months, r.term_max_months,
            r.source, o.campaign
@@ -98,8 +102,7 @@ export async function loadAffiliates() {
 }
 
 /** All ads in one workspace, newest activity first. */
-export async function loadAssets(workspaceId: string): Promise<AssetView[]> {
-  const sql = db();
+export async function loadAssets(workspaceId: string, sql: Executor = db()): Promise<AssetView[]> {
   const [assets, versions, decisions, comments, activity, revisions] = await Promise.all([
     sql`
       select a.id, a.ref, a.title, a.placement, a.planned_date::text, a.created_at,
@@ -139,7 +142,7 @@ export async function loadAssets(workspaceId: string): Promise<AssetView[]> {
       where workspace_id = ${workspaceId} and asset_id is not null
       group by asset_id
     `,
-    loadRevisions(),
+    loadRevisions(sql),
   ]);
 
   const out: AssetView[] = [];
@@ -216,8 +219,8 @@ export async function loadAssets(workspaceId: string): Promise<AssetView[]> {
   return out.sort((x, y) => y.lastActivityAt.localeCompare(x.lastActivityAt));
 }
 
-export async function loadAsset(workspaceId: string, ref: string): Promise<AssetView | null> {
-  const all = await loadAssets(workspaceId);
+export async function loadAsset(workspaceId: string, ref: string, sql: Executor = db()): Promise<AssetView | null> {
+  const all = await loadAssets(workspaceId, sql);
   return all.find((a) => a.ref === ref) ?? null;
 }
 

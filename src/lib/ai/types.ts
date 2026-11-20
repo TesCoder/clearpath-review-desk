@@ -56,7 +56,10 @@ export type AiFinding = {
 
 export type AiReview = {
   /**
-   * complete: the model answered and every quote it cited is in the copy.
+   * complete: the model answered, every quote it cited is in the copy, and
+   *   nothing the code can see contradicts it. This is not "the ad is fine":
+   *   a model can miss a claim that no code check covers, so an empty answer
+   *   is always worded as "the AI reported nothing", never as a clean review.
    * incomplete: the model failed, cited words that are not in the copy, or
    *   left out a claim the code check found. Never shown as "no issues".
    * unavailable: the model could not be reached or is not set up.
@@ -69,6 +72,10 @@ export type AiReview = {
   missedByModel: string[];
   reason: string | null;
   model: string;
+  /** The model's own report that the copy contains text addressed to an AI or to the reviewer. */
+  addressesReviewer: boolean;
+  /** False when the model failed or could not be reached. Only real answers are stored. */
+  answered: boolean;
 };
 
 export const PROMPT_VERSION = "2026-11-20.1";

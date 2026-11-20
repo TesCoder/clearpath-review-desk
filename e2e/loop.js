@@ -1,6 +1,7 @@
 // The full correction loop, the submit form, hostile copy shown as text, and the server refusing a marketer approval.
 // Runs in a fresh headless browser. Usage: BASE=https://your-site npm run e2e   (default http://localhost:3000)
 const { chromium } = require('playwright');
+const { ok, finish, approve, fail } = require('./harness');
 const BASE = process.env.BASE || 'http://localhost:3000';
 const SHOTS = process.env.SHOTS || require('node:os').tmpdir();
 const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
@@ -13,7 +14,6 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
   page.on('pageerror', e => problems.push('pageerror: ' + e.message));
   page.on('dialog', d => { problems.push('DIALOG: ' + d.message()); d.dismiss(); });
   page.on('request', r => { if (!r.url().startsWith(BASE) && !r.url().startsWith('data:')) external.push(r.url()); });
-  const ok = (name, cond) => console.log((cond ? 'PASS ' : 'FAIL ') + name);
   const as = async (role) => {
     await page.click('header button[value=' + role + ']');
     await page.waitForFunction((r) => document.querySelector('header button[value=' + r + ']').getAttribute('aria-pressed') === 'true', role);
@@ -46,7 +46,7 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
   ok('fee request shown resolved', /Resolved/.test(v3) && /The claim was removed/.test(v3));
   ok('no new claim in v3', /Nothing was added in this version/.test(v3));
   await page.screenshot({ path: SHOTS + '/9-review-v3.png', fullPage: true });
-  await page.click('button[type=submit]:has-text("Approve version 3")');
+  await approve(page, 3);
   await page.waitForSelector('text=Approved copy');
   await page.reload();
   ok('approved copy is version 3 text after reload', (await page.innerText('#approved-copy')).trim() === V3);
@@ -98,7 +98,7 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
   ok('server refuses approval from the marketer role', /Only a compliance reviewer/.test(await page.innerText('form [role=alert]')));
   await ctx.addCookies([{ ...roleCookie, value: 'reviewer' }]);
 
-  // 6. server rule: a stale reviewer page cannot approve after the text changed
+  // 6. an approved ad that the marketer edits goes back to review (stale-tab approvals are tested in integrity.js)
   await page.goto(BASE + '/ads/AD-1038'); // approved ad
   await ctx.addCookies([{ ...roleCookie, value: 'marketer' }]);
   const other = await ctx.newPage();
@@ -119,6 +119,6 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
 
   ok('no requests left the app', external.length === 0);
   if (external.length) console.log(external);
-  console.log('problems:', problems.length ? problems : 'none');
   await browser.close();
-})().catch(e => { console.error('SCRIPT ERROR', e.message.split('\n')[0]); process.exit(1); });
+  finish(problems);
+})().catch(fail);

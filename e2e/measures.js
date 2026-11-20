@@ -2,6 +2,7 @@
 // ad's count, and an approval leaves the count alone and shows the turnaround.
 // Runs in a fresh headless browser. Usage: BASE=https://your-site npm run e2e   (default http://localhost:3000)
 const { chromium } = require('playwright');
+const { ok, finish, approve, fail } = require('./harness');
 const BASE = process.env.BASE || 'http://localhost:3000';
 (async () => {
   const browser = await chromium.launch();
@@ -9,7 +10,6 @@ const BASE = process.env.BASE || 'http://localhost:3000';
   const problems = [];
   page.on('console', m => { if (m.type() === 'error') problems.push('console: ' + m.text().slice(0, 200)); });
   page.on('pageerror', e => problems.push('pageerror: ' + e.message));
-  const ok = (name, cond) => console.log((cond ? 'PASS ' : 'FAIL ') + name);
   const row = async () => {
     await page.goto(BASE + '/measures');
     const r = page.locator('tr[data-measure-ref="AD-1041"]');
@@ -49,14 +49,13 @@ const BASE = process.env.BASE || 'http://localhost:3000';
   ok('resubmitting leaves the count alone and hands it to the reviewer', resubmitted.sentBack === requested.sentBack && resubmitted.withWhom === 'reviewer');
   await page.goto(BASE + '/ads/AD-1041');
   await page.click('button:has-text("Review version 3 as the reviewer")');
-  await page.waitForSelector('button[type=submit]:has-text("Approve version 3")');
-  await page.click('button[type=submit]:has-text("Approve version 3")');
+  await approve(page, 3);
   await page.waitForSelector('text=Approved copy');
   const approved = await row();
   console.log('after approval:', JSON.stringify(approved));
   ok('approving version 3 leaves the count alone', approved.sentBack === requested.sentBack);
   ok('the turnaround appears on approval', /\d+ (day|hour|min)/.test(approved.turnaround) && approved.withWhom === 'no one');
 
-  console.log('problems:', problems.length ? problems : 'none');
   await browser.close();
-})().catch(e => { console.error('SCRIPT ERROR', e.message.split('\n')[0]); process.exit(1); });
+  finish(problems);
+})().catch(fail);

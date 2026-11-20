@@ -1,6 +1,6 @@
 // Code-only checks on ad copy. No model is involved anywhere in this file.
 //
-// Decision-logic rounds: 3 (llm-first-decision-architecture.mdc section 6).
+// Decision-logic rounds: 4 (llm-first-decision-architecture.mdc section 6).
 // Decision counted: whether a claim in ad copy "matches" the offer, "does not
 // match", or "needs the reviewer".
 //   Round 1, 2026-11-20: the approver's test of the submit form found a rate
@@ -11,6 +11,10 @@
 //     Stopped there. The approver chose the split the same day ("Yes, narrow
 //     it"): exact forms in code, everything else held for the reviewer.
 //   Round 3, 2026-11-20: that narrowing, below. It adds no accepted form.
+//   Round 4, 2026-11-20: an external review found "0% prepayment fee" compared
+//     with the origination fee and offered "Change to: 2%". Narrowed: a fee
+//     figure is compared only when the ad names the origination fee. It adds
+//     no accepted form.
 //
 // The only forms this file reads as a figure (the approved forms):
 //   1. digits, an optional decimal part, at most one space, then "%",
@@ -19,7 +23,8 @@
 //   3. "no", "zero", "without", "$0" or "0", then an optional "origination",
 //      "upfront", "lender" or "loan", then "fee" or "fees"  ("no origination fee")
 // A figure is called a rate only when "APR", "annual percentage rate" or
-// "rate" is in its sentence, and a fee only when "fee" or "origination" is.
+// "rate" is in its sentence. A figure is compared as the origination fee only
+// when it reads "<figure> origination fee" or "origination fee of <figure>".
 // Everything else is held open as "needs the reviewer": any other number in a
 // sentence about rates, fees or percentages, and any sentence that mentions a
 // rate or a fee with no figure this file can read. Nothing is matched on a
@@ -255,6 +260,11 @@ function nearest(re: RegExp, sentence: string, at: number): number {
   return best;
 }
 
+/** True for "<figure> origination fee" and "origination fee of <figure>". */
+function namesOriginationFee(lower: string, s: number, e: number): boolean {
+  return /^\s+origination\s+fees?\b/.test(lower.slice(e)) || /\borigination\s+fees?\s+(?:(?:of|is|at)\s+)?$/.test(lower.slice(0, s));
+}
+
 export function findClaims(text: string): Claim[] {
   const { norm: lower, map } = normalizeWithMap(text);
   const claims: Claim[] = [];
@@ -304,6 +314,11 @@ export function findClaims(text: string): Claim[] {
     const fee = nearest(FEE_WORDS, sentence, s - ss);
     let kind: ClaimKind = "unclassified";
     if (rate !== Infinity || fee !== Infinity) kind = fee < rate ? "fee" : "apr";
+    // The offer sheet states one fee, the origination fee. A fee figure is
+    // compared with it only when the ad plainly names that fee. A prepayment,
+    // late or unnamed fee is held for the reviewer, with no suggested edit:
+    // "changing 0% to 2%" on a prepayment fee would write a false claim.
+    if (kind === "fee" && !namesOriginationFee(lower, n.s, n.e)) kind = "unclassified";
     // Include a directly following "APR" in the quoted words.
     const tail = /^\s?apr\b/.exec(lower.slice(e));
     if (kind === "apr" && tail) e += tail[0].length;
@@ -486,6 +501,17 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
     offerValue: null,
     suggestion: null,
   };
+}
+
+/**
+ * The request the app drafts for a claim that does not match the offer. It is
+ * about that one claim and nothing else, which is what lets the revision view
+ * say "Resolved" when a reviewer sent it unedited.
+ */
+export function draftRequest(check: Check): string {
+  if (check.status !== "mismatch") return "";
+  if (check.claim.kind === "no_fee") return `${check.message} Please remove this sentence or state the fee.`;
+  return check.suggestion ? `${check.message} Please change it to ${check.suggestion}.` : check.message;
 }
 
 export type CopyAnalysis = {

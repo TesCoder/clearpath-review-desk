@@ -249,3 +249,43 @@ describe("only a figure read whole is ever called a match", () => {
     }
   });
 });
+
+// Round 4: the offer sheet states one fee, so only the origination fee is compared.
+describe("a fee figure is compared only when the ad names the origination fee", () => {
+  const checks = (text: string) => analyzeCopy(text, winter).checks;
+
+  it("a prepayment fee is held, with no suggested edit", () => {
+    const c = checks("Rates from 8.99% APR. A 0% prepayment fee applies.");
+    expect(c.map((x) => [x.claim.quote, x.status, x.suggestion])).toEqual([
+      ["8.99% APR", "ok", null],
+      ["0%", "needs_reviewer", null],
+    ]);
+  });
+
+  it("the origination fee is still compared, both ways round, with its fix", () => {
+    for (const text of ["0% origination fee", "A 0% origination fee applies.", "Origination fee of 0%.", "The origination fee is 0%."]) {
+      const c = checks(text).find((x) => x.status === "mismatch");
+      expect(c, text).toBeTruthy();
+      expect(c!.suggestion, text).toContain("2");
+    }
+    expect(checks("A 2% origination fee applies.").map((x) => x.status)).toEqual(["ok"]);
+  });
+
+  it("late, annual and unnamed fees are held, never matched and never given a fix", () => {
+    for (const text of ["A 2% late fee applies.", "Annual fee of 2%.", "A 2% fee applies.", "Origination and late fees of 5% may apply."]) {
+      const all = checks(text);
+      expect(all.some((x) => x.status === "ok"), text).toBe(false);
+      expect(all.some((x) => x.status === "mismatch"), text).toBe(false);
+      expect(all.every((x) => x.suggestion === null), text).toBe(true);
+      expect(all.some((x) => x.status === "needs_reviewer"), text).toBe(true);
+    }
+  });
+
+  it("both fees in one sentence: the origination fee is compared, the other is held", () => {
+    const c = checks("A 2% origination fee and a 0% prepayment fee apply.");
+    expect(c.map((x) => [x.claim.quote, x.status])).toEqual([
+      ["2%", "ok"],
+      ["0%", "needs_reviewer"],
+    ]);
+  });
+});

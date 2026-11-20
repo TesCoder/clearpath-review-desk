@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { OfferTerms } from "./checks";
 import { diffWords, hasChanges } from "./diff";
-import { analyzeCopy } from "./checks";
+import { analyzeCopy, draftRequest } from "./checks";
 import { addedSentences, reviewRevision } from "./revision";
+import { HERO_V1, HERO_V1_REQUEST } from "./seed";
 
 const terms: OfferTerms = {
   revisionId: "pl-winter-r1",
@@ -19,8 +20,9 @@ const terms: OfferTerms = {
 const V1 = "Compare ClearPath personal loans. Rates from 6.99% APR.";
 const V2 = "Compare ClearPath personal loans. Rates from 8.99% APR. No origination fee.";
 const V3 = "Compare ClearPath personal loans. Rates from 8.99% APR.";
-const aprRequest = { anchorText: "6.99% APR", body: "Please change the rate to 8.99% APR." };
-const feeRequest = { anchorText: "No origination fee", body: "Remove this sentence or state the fee." };
+// The requests the app drafts for these two claims, as a reviewer sends them unedited.
+const aprRequest = { anchorText: "6.99% APR", body: draftRequest(analyzeCopy(V1, terms).checks[0]) };
+const feeRequest = { anchorText: "No origination fee", body: draftRequest(analyzeCopy(V2, terms).checks[1]) };
 
 describe("reviewing a revision", () => {
   it("version 2 resolves the APR request and brings in a new unsupported claim", () => {
@@ -60,6 +62,54 @@ describe("reviewing a revision", () => {
   it("a corrected fee that the offer confirms is resolved", () => {
     const r = reviewRevision(V2, V3 + " A 2% origination fee applies.", [feeRequest], terms);
     expect(r.outcomes[0]).toMatchObject({ outcome: "resolved", detail: 'The ad now says "2%", which matches the offer.' });
+  });
+
+  it("the drafted requests are about one claim each", () => {
+    expect(aprRequest.body).toBe(
+      "The ad says 6.99% APR. The lowest APR on the Winter Personal Loan offer from Nov 1, 2026 is 8.99%. Please change it to 8.99% APR.",
+    );
+    expect(feeRequest.body).toContain("Please remove this sentence or state the fee.");
+  });
+
+  it("the seeded request on the hero ad is the drafted request, so the demo's Resolved is earned", () => {
+    expect(HERO_V1_REQUEST.anchor).toBe("6.99% APR");
+    expect(HERO_V1_REQUEST.body).toBe(draftRequest(analyzeCopy(HERO_V1, terms).checks[0]));
+  });
+
+  describe("a request in the reviewer's own words is never marked resolved by a number check", () => {
+    it("two-part request, only the rate fixed: the rate check passes, the rest is the reviewer's to confirm", () => {
+      const r = reviewRevision(
+        "Rates from 6.99% APR. Guaranteed approval.",
+        "Rates from 8.99% APR. Guaranteed approval.",
+        [{ anchorText: "6.99% APR", body: "Correct the APR and remove guaranteed approval." }],
+        terms,
+      );
+      expect(r.outcomes[0].outcome).toBe("check_passes");
+      expect(r.outcomes[0].detail).toBe(
+        'The ad now says "8.99% APR", which matches the offer. That is all the rate check can confirm. Confirm the rest of your request.',
+      );
+    });
+
+    it("a drafted request with more typed after it is no longer the draft", () => {
+      const r = reviewRevision(V1, V2, [{ anchorText: "6.99% APR", body: aprRequest.body + " Also remove the word Compare." }], terms);
+      expect(r.outcomes[0].outcome).toBe("check_passes");
+    });
+
+    it("even a short single-topic request in the reviewer's words gets the careful label", () => {
+      const r = reviewRevision(V1, V2, [{ anchorText: "6.99% APR", body: "Correct the APR." }], terms);
+      expect(r.outcomes[0].outcome).toBe("check_passes");
+    });
+
+    it("a deleted claim under an own-words request is reported as removed, not resolved", () => {
+      const r = reviewRevision(V2, V3, [{ anchorText: "No origination fee", body: "Remove the fee line and add the full APR range." }], terms);
+      expect(r.outcomes[0].outcome).toBe("check_passes");
+      expect(r.outcomes[0].detail).toBe("The claim was removed, and nothing was added in its place. Confirm the rest of your request.");
+    });
+
+    it("a still-wrong figure is still reported as not resolved", () => {
+      const r = reviewRevision(V1, V1.replace("6.99", "7.99"), [{ anchorText: "6.99% APR", body: "Correct the APR and remove guaranteed approval." }], terms);
+      expect(r.outcomes[0].outcome).toBe("not_resolved");
+    });
   });
 
   it("says so when the flagged words are still there", () => {

@@ -10,8 +10,9 @@ import { StatusPill } from "@/components/StatusPill";
 import { SwitchTo } from "@/components/SwitchTo";
 import { isAiConfigured } from "@/lib/ai/select";
 import { getStoredReview } from "@/lib/ai/store";
-import type { AiFinding, AiReview } from "@/lib/ai/types";
-import { MAX_COMMENT_CHARS, type Check } from "@/lib/checks";
+import { findingsBeyondChecks } from "@/lib/ai/display";
+import type { AiFinding } from "@/lib/ai/types";
+import { MAX_COMMENT_CHARS, draftRequest, type Check } from "@/lib/checks";
 import { loadAsset, loadRevisions, type AssetView } from "@/lib/data";
 import { diffWords, hasChanges } from "@/lib/diff";
 import { shortFingerprint } from "@/lib/fingerprint";
@@ -51,6 +52,10 @@ const OUTCOME: Record<
   resolved: { label: "Resolved", cls: "bg-emerald-100 text-emerald-900" },
   not_resolved: { label: "Not resolved", cls: "bg-red-100 text-red-900" },
   unchanged: { label: "Not changed", cls: "bg-red-100 text-red-900" },
+  check_passes: {
+    label: "Check passes, confirm the rest",
+    cls: "bg-sky-100 text-sky-900",
+  },
   changed: {
     label: "Wording changed, please confirm",
     cls: "bg-amber-100 text-amber-900",
@@ -84,15 +89,6 @@ function withoutLead(message: string): string {
     : message;
 }
 
-function draftFor(c: Check): string {
-  if (c.status !== "mismatch") return "";
-  if (c.claim.kind === "no_fee")
-    return `${c.message} Please remove this sentence or state the fee.`;
-  return c.suggestion
-    ? `${c.message} Please change it to ${c.suggestion}.`
-    : c.message;
-}
-
 function anchorsFor(a: AssetView, aiOnly: AiFinding[]): Anchor[] {
   const seen = new Set<string>();
   const out: Anchor[] = [];
@@ -101,7 +97,7 @@ function anchorsFor(a: AssetView, aiOnly: AiFinding[]): Anchor[] {
     seen.add(c.claim.quote);
     out.push({
       quote: c.claim.quote,
-      draft: draftFor(c),
+      draft: draftRequest(c),
       flagged: c.status !== "ok",
       source: "check",
     });
@@ -130,19 +126,6 @@ const KIND_LABEL: Record<AiFinding["kind"], string> = {
   other: "Other",
 };
 
-/** AI findings that are not already covered by a code check on the same words. */
-function beyondChecks(review: AiReview | null, a: AssetView): AiFinding[] {
-  // A finding is left out only when it is a short rate or fee finding about
-  // the same words a code check already covers. Anything longer or of another
-  // kind is shown, so a claim such as "Guaranteed approval at 6.99% APR" is
-  // never hidden by the number inside it.
-  const claims = a.analysis?.claims ?? [];
-  const sameWords = (f: AiFinding) =>
-    (f.kind === "rate" || f.kind === "fee") &&
-    claims.some((c) => f.start < c.end && c.start < f.end && f.end - f.start <= c.end - c.start + 30);
-  return (review?.findings ?? []).filter((f) => !sameWords(f));
-}
-
 export default async function AdPage(props: PageProps<"/ads/[ref]">) {
   const { ref } = await props.params;
   const { done } = await props.searchParams;
@@ -155,7 +138,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
 
   const { latest, terms, analysis } = asset;
   const aiReview = await getStoredReview(asset);
-  const aiOnly = beyondChecks(aiReview, asset);
+  const aiOnly = findingsBeyondChecks(aiReview, analysis?.claims ?? []);
   const extraMarks: ExtraMark[] = [
     ...aiOnly.map((f) => ({
       start: f.start,
@@ -200,6 +183,10 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
   const aiNew = previous
     ? aiOnly.filter((f) => !previous.body.includes(f.quote))
     : [];
+  // Figures that are new in this version and agree with the offer. Shown so
+  // "nothing new" is never said about a version that added a rate or a fee.
+  const matchingNew = revision?.newClaims.filter((c) => c.status === "ok") ?? [];
+  const onlyRemoved = Boolean(diff && hasChanges(diff) && !diff.some((p) => p.type === "added" && p.text.trim() !== ""));
   const approval = lastApproval(asset.state);
   const approvedVersion = approval
     ? asset.versions.find((v) => v.number === approval.versionNumber)
@@ -469,7 +456,20 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                     ))}
                   </ul>
                 </div>
-              ) : hasChanges(diff) && !flaggedNew.length ? (
+              ) : null}
+              {matchingNew.length ? (
+                <p className="mt-4 text-sm text-slate-700">
+                  Added in this version and matching the offer:{" "}
+                  {matchingNew.map((c, i) => (
+                    <span key={i}>
+                      {i > 0 ? ", " : ""}
+                      <q className="font-medium">{c.claim.quote}</q>
+                    </span>
+                  ))}
+                  .
+                </p>
+              ) : null}
+              {onlyRemoved ? (
                 <p className="mt-4 text-sm text-slate-600">Nothing was added in this version: words were only removed.</p>
               ) : null}
               {aiNew.length ? (
@@ -494,10 +494,10 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
             </Card>
           ) : null}
 
-          <Card title="The ad as a consumer sees it">
+          <Card title="Copy preview">
             <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                {asset.affiliate.name} · {asset.placement} · Sponsored
+                {asset.affiliate.name} · {asset.placement}
               </p>
               <div className="mt-2">
                 <CopyView
@@ -508,6 +508,10 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                 />
               </div>
             </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Text only. This preview does not show the layout, how prominent a
+              disclosure is, or any sponsorship label on the live placement.
+            </p>
             {analysis?.hidden.length ? (
               <ul className="mt-3 space-y-1 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
                 <li className="font-semibold">
@@ -599,6 +603,9 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
           </Card>
 
           <Card title="Checks against the offer">
+            {analysis && analysis.checks.length && analysis.openFlags === 0 ? (
+              <p className="mb-2 text-sm font-medium text-slate-900">No detected offer mismatch.</p>
+            ) : null}
             {analysis && analysis.checks.length ? (
               <ul className="space-y-2">
                 {analysis.checks.map((c, i) => (
@@ -617,8 +624,10 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
               </p>
             )}
             <p className="mt-3 text-xs text-slate-500">
-              Numbers are compared with the offer sheet by code, not by AI.
-              Wording that is not a number still needs your judgment.
+              Numbers are compared with the offer sheet by code, not by AI. A
+              match means a figure agrees with the offer sheet. It is not a
+              finding that the ad is compliant: other wording, required
+              disclosures and how the ad is laid out still need your judgment.
             </p>
           </Card>
 
@@ -656,8 +665,15 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                     </ul>
                   ) : aiReview.status === "complete" ? (
                     <p className="text-sm text-slate-700">
-                      The AI pointed to nothing beyond the rate and fee checks
-                      above.
+                      The AI reported nothing beyond the rate and fee checks
+                      above. That is not a finding that the ad is fine: an AI
+                      can miss a claim. Read the wording yourself.
+                    </p>
+                  ) : null}
+                  {aiReview.addressesReviewer ? (
+                    <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950">
+                      The AI reported that this copy contains text addressed to
+                      the reviewer or to an AI.
                     </p>
                   ) : null}
                   <p className="mt-3 text-xs text-slate-500">
@@ -690,6 +706,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
               placement={asset.placement}
               offerRevisionId={terms.revisionId}
               anchors={anchorsFor(asset, aiOnly)}
+              aiFindings={aiOnly.length}
               mismatches={analysis?.mismatches ?? 0}
               covers={`Approving covers exactly this text (version ${latest.number}, fingerprint ${shortFingerprint(latest.fingerprint)}), checked against ${terms.campaign} revision ${terms.revision}, for publication on ${formatDate(asset.plannedDate)} as ${withArticle(asset.placement)}. Any edit, new date or new placement comes back to you.`}
               copyElementId="ad-copy"

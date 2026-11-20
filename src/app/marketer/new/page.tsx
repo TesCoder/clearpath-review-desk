@@ -2,13 +2,14 @@ import Link from "next/link";
 import { SubmitForm } from "@/components/SubmitForm";
 import { loadAffiliates, loadOffers, loadRevisions } from "@/lib/data";
 import { isoDatePlusDays } from "@/lib/format";
+import { SUPPORTED_PRODUCT } from "@/lib/offers";
 
 export const dynamic = "force-dynamic";
 
 export default async function NewAd() {
   const [affiliates, offers, revisions] = await Promise.all([loadAffiliates(), loadOffers(), loadRevisions()]);
-  // Personal loans first: it is the campaign this desk is set up for.
-  const ordered = [...offers].sort((a, b) => Number(b.id.startsWith("pl-")) - Number(a.id.startsWith("pl-")));
+  // Personal loans first: it is the product this desk is set up for.
+  const ordered = [...offers].sort((a, b) => Number(b.product === SUPPORTED_PRODUCT) - Number(a.product === SUPPORTED_PRODUCT));
   return (
     <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">
       <Link href="/marketer" className="text-sm text-indigo-700 underline-offset-2 hover:underline">
@@ -21,7 +22,11 @@ export default async function NewAd() {
       <div className="mt-6">
         <SubmitForm
           affiliates={affiliates.map((a) => ({ id: a.id, label: `${a.name} (${a.kind.toLowerCase()})` }))}
-          offers={ordered.map((o) => ({ id: o.id, label: `${o.campaign} (${o.product.toLowerCase()})` }))}
+          offers={ordered.map((o) => ({
+            id: o.id,
+            label: `${o.campaign} (${o.product.toLowerCase()})`,
+            supported: o.product === SUPPORTED_PRODUCT,
+          }))}
           revisions={revisions}
           defaultDate={isoDatePlusDays(14)}
         />
