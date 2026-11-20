@@ -220,3 +220,19 @@ export async function loadAsset(workspaceId: string, ref: string): Promise<Asset
   const all = await loadAssets(workspaceId);
   return all.find((a) => a.ref === ref) ?? null;
 }
+
+/** The event log for one workspace, oldest first, grouped by ad. */
+export async function loadEventsByAsset(workspaceId: string): Promise<Map<string, Array<{ type: string; at: string }>>> {
+  const rows = await db()`
+    select asset_id, type, created_at from events
+    where workspace_id = ${workspaceId} and asset_id is not null
+    order by created_at
+  `;
+  const byAsset = new Map<string, Array<{ type: string; at: string }>>();
+  for (const r of rows) {
+    const list = byAsset.get(r.asset_id) ?? [];
+    list.push({ type: r.type, at: iso(r.created_at) });
+    byAsset.set(r.asset_id, list);
+  }
+  return byAsset;
+}

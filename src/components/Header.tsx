@@ -32,6 +32,14 @@ export function Header({ role }: { role: Role }) {
           {tab("reviewer", "Reviewer")}
           {tab("marketer", "Marketer")}
         </form>
+        <nav className="flex items-center gap-4 text-sm" aria-label="Pages">
+          <Link href={role === "marketer" ? "/marketer" : "/"} className="text-slate-700 underline-offset-4 hover:underline">
+            {role === "marketer" ? "Your ads" : "Queue"}
+          </Link>
+          <Link href="/measures" className="text-slate-700 underline-offset-4 hover:underline">
+            Measures
+          </Link>
+        </nav>
         <form action={resetDemo} className="ml-auto">
           <button
             type="submit"

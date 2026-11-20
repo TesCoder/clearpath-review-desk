@@ -77,7 +77,7 @@ Affiliate copy is third-party text, and here it is read by a model. I assume an 
 | Reading another visitor's data | The workspace comes from an httpOnly cookie holding a random token (only its hash is stored), never from a form field, a URL or the model. Every query is scoped to it and uses parameters |
 | Oversized input, or running up the bill | Length limits on every field, a cap on ads and versions per workspace, 40 AI calls a day per workspace and 1,500 overall, a short model timeout, and results stored by text so the same ad is read once |
 
-**Results.** `npm test` runs 69 unit tests, including eight hostile ads against a fake model that does whatever the ad says: in every case the rate mismatch still shows and the AI review is not presented as complete. A live run against the real model (`npm run eval`, results in `eval/results.json`):
+**Results.** `npm test` runs 75 unit tests, including eight hostile ads against a fake model that does whatever the ad says: in every case the rate mismatch still shows and the AI review is not presented as complete. A live run against the real model (`npm run eval`, results in `eval/results.json`):
 
 - 16 labeled ads: 18 of 18 expected claims found, both clean ads returned no findings, no quotes discarded.
 - 8 hostile ads, 3 runs each: the outcome was protected in 24 of 24 runs, and the model itself still reported the rate in 24 of 24.
@@ -99,7 +99,7 @@ The outcome to aim at is **approved ads per reviewer-hour**, with time from subm
 
 What exists today:
 
-- Every submission, request, approval and move is logged as an event with a time, so time to decision and revision rounds can be computed from the product. An open page is not counted as reviewer time, because an unattended tab would distort the measure.
+- Every submission, request, approval and move is logged as an event with a time. The **Measures** page (in the header) counts from that log each time it opens: for each ad, how many times compliance sent it back, who has it now, and the elapsed time from first submission to approval. Request changes on AD-1041 and its count goes up by one; approve version 3 and the count stays while the turnaround appears. The page says what it is: fictional demo activity, with elapsed time that includes waits between people. An open page is not counted as reviewer time, because an unattended tab would distort the measure.
 - One timed observation, by a reviewer who already knew the scenario: in a fresh window the queue appeared in 6.1 seconds and the false fee claim was visible 1.3 seconds after opening the ad, about 7.5 seconds from opening the URL, at desktop width, without opening an offer sheet or searching for the earlier request. That measures finding the problem, not an unfamiliar person's decision time.
 - One step visibly removed: a stale rate is corrected on the submit form before it reaches a reviewer.
 
@@ -116,7 +116,7 @@ What exists today:
 
 Cut for the 24 hours: Excel import, email integration, a rules library beyond rates and fees, credit card and mortgage flows (they appear only in the offer list), affiliate logins, images and PDFs, and monitoring of live affiliate pages.
 
-Next, in order: a baseline study with real reviewers to test the bet; a rules library the compliance team owns and edits; an approved-language library so ads built from approved wording take a fast path; sign-in and real permissions; a metrics view from the event log; and monitoring of what affiliates actually publish.
+Next, in order: a baseline study with real reviewers to test the bet; a rules library the compliance team owns and edits; an approved-language library so ads built from approved wording take a fast path; sign-in and real permissions; a fuller metrics view (per reviewer, per affiliate, over time); and monitoring of what affiliates actually publish.
 
 ## Run it locally
 
@@ -146,7 +146,7 @@ The deployed demo uses the Anthropic API, and that is the only model route in pr
 |---|---|
 | `npm test` | Unit tests (no network, no key) |
 | `npm run eval` | The live check against the API. Costs a few cents. Writes `eval/results.json` |
-| `npm run e2e` | Three headless click-throughs. Set `BASE` to the site to test. Needs `npx playwright install chromium` once |
+| `npm run e2e` | Four headless click-throughs. Set `BASE` to the site to test. Needs `npx playwright install chromium` once |
 | `npm run db:migrate` | Creates or updates the tables and reference data |
 
 ## How it is built
