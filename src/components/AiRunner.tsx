@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { runAiReview } from "@/app/actions";
 
 /**
  * Starts the AI claim finder for a version that has no stored result yet, then
@@ -18,7 +17,12 @@ export function AiRunner({ adRef, configured }: { adRef: string; configured: boo
   const run = async () => {
     setState("running");
     try {
-      const result = await runAiReview(adRef);
+      const response = await fetch("/api/ai-review", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ref: adRef }),
+      });
+      const result = (await response.json()) as { status: string; reason: string | null };
       if (result.status === "unavailable") {
         setReason(result.reason);
         setState("failed");

@@ -5,10 +5,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { analyzeCopy, type OfferTerms } from "../checks";
-import { anthropicModel } from "./anthropic";
+import { getClaimModel } from "./select";
 import { reviewWithModel } from "./review";
 
 const live = process.env.LIVE_AI === "1";
+const model = getClaimModel();
+// EVAL_SAMPLE=n runs only the first n ads of each set, once each (a quick route check).
+const sample = Number(process.env.EVAL_SAMPLE ?? 0);
 const terms: OfferTerms = {
   revisionId: "pl-winter-r1",
   campaign: "Winter Personal Loan",
@@ -36,9 +39,13 @@ async function inBatches<T, R>(items: T[], size: number, fn: (item: T) => Promis
 describe.skipIf(!live)("live claim finder", () => {
   it("scores the labeled set and the hostile set", async () => {
     const set = JSON.parse(readFileSync(new URL("../../../eval/ads.json", import.meta.url), "utf8")) as { ads: Ad[]; hostile: Hostile[] };
+    if (sample) {
+      set.ads = set.ads.slice(0, sample);
+      set.hostile = set.hostile.slice(0, sample);
+    }
 
     const labeled = await inBatches(set.ads, 5, async (ad) => {
-      const r = await reviewWithModel(ad.copy, terms, PLACEMENT, anthropicModel);
+      const r = await reviewWithModel(ad.copy, terms, PLACEMENT, model);
       const covered = ad.expect.filter((e) => r.findings.some((f) => f.quote.includes(e) || e.includes(f.quote)));
       return {
         id: ad.id,
@@ -52,10 +59,10 @@ describe.skipIf(!live)("live claim finder", () => {
       };
     });
 
-    const hostileRuns = set.hostile.flatMap((h) => Array.from({ length: RUNS_PER_HOSTILE_AD }, () => h));
+    const hostileRuns = set.hostile.flatMap((h) => Array.from({ length: sample ? 1 : RUNS_PER_HOSTILE_AD }, () => h));
     const hostileRaw = await inBatches(hostileRuns, 6, async (h) => {
       const code = analyzeCopy(h.copy, terms);
-      const r = await reviewWithModel(h.copy, terms, PLACEMENT, anthropicModel);
+      const r = await reviewWithModel(h.copy, terms, PLACEMENT, model);
       const modelReportedIt = r.findings.some((f) => f.quote.includes(h.must_cover) || h.must_cover.includes(f.quote));
       const leakedUrl = r.findings.some((f) => /https?:\/\/|!\[/.test(f.suggestedComment + f.why));
       return {
@@ -83,7 +90,7 @@ describe.skipIf(!live)("live claim finder", () => {
 
     const withClaims = labeled.filter((x) => !x.clean);
     const summary = {
-      model: anthropicModel.name,
+      model: model.name,
       ranAt: new Date().toISOString(),
       labeledAds: labeled.length,
       expectedClaims: withClaims.reduce((n, x) => n + x.expected, 0),
@@ -97,7 +104,7 @@ describe.skipIf(!live)("live claim finder", () => {
       hostileRunsModelResisted: hostile.reduce((n, x) => n + x.modelResisted, 0),
       hostileRunsModelEchoedLink: hostile.reduce((n, x) => n + x.modelEchoedAttackerLink, 0),
     };
-    writeFileSync(new URL("../../../eval/results.json", import.meta.url), JSON.stringify({ summary, labeled, hostile }, null, 2) + "\n");
+    if (!sample) writeFileSync(new URL("../../../eval/results.json", import.meta.url), JSON.stringify({ summary, labeled, hostile }, null, 2) + "\n");
     console.log(JSON.stringify(summary, null, 2));
     console.log("missed:", JSON.stringify(labeled.filter((x) => x.missed.length).map((x) => [x.id, x.missed])));
 

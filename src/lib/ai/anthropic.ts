@@ -1,8 +1,8 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { z } from "zod";
-import { FINDING_KINDS, ModelError, type ClaimModel } from "./types";
+import { Output } from "./schema";
+import { ModelError, type ClaimModel } from "./types";
 
 // Sonnet 5.5: the task is narrow (find and quote claims in a short ad), and
 // code checks the numbers. Low effort keeps the answer fast enough for a page.
@@ -10,28 +10,16 @@ import { FINDING_KINDS, ModelError, type ClaimModel } from "./types";
 // a slow call ends as "unavailable" with a Try again button, not a broken page.
 export const MODEL_ID = "claude-sonnet-5-5";
 
-const Output = z.object({
-  findings: z.array(
-    z.object({
-      quote: z.string(),
-      kind: z.enum(FINDING_KINDS),
-      why: z.string(),
-      suggested_comment: z.string(),
-    }),
-  ),
-  copy_addresses_reviewer: z.boolean(),
-});
-
 let client: Anthropic | null = null;
 
-export function isAiConfigured(): boolean {
+export function hasApiKey(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
 
 export const anthropicModel: ClaimModel = {
   name: MODEL_ID,
   async find({ system, user }) {
-    if (!isAiConfigured()) throw new ModelError("not_configured", "ANTHROPIC_API_KEY is not set.");
+    if (!hasApiKey()) throw new ModelError("not_configured", "ANTHROPIC_API_KEY is not set.");
     client ??= new Anthropic({ timeout: 9_000, maxRetries: 0 });
     let response;
     try {

@@ -2,7 +2,6 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { runReview } from "@/lib/ai/store";
 import { MAX_COMMENT_CHARS, MAX_COPY_CHARS, MAX_NOTE_CHARS } from "@/lib/checks";
 import { loadAsset } from "@/lib/data";
 import { db } from "@/lib/db";
@@ -232,17 +231,4 @@ export async function moveAd(_prev: FormState, formData: FormData): Promise<Form
     `;
   });
   redirect(`/ads/${encodeURIComponent(ref)}?done=moved`);
-}
-
-// AI claim finder ------------------------------------------------------------
-
-export type AiRunState = { status: "complete" | "incomplete" | "unavailable"; reason: string | null };
-
-/** Runs the AI claim finder for an ad's latest version. Takes only the ad's reference. */
-export async function runAiReview(ref: string): Promise<AiRunState> {
-  const workspaceId = await getWorkspaceId();
-  const asset = await loadAsset(workspaceId, String(ref).slice(0, 20));
-  if (!asset) return { status: "unavailable", reason: "That ad is not in your workspace." };
-  const review = await runReview(workspaceId, asset);
-  return { status: review.status, reason: review.reason };
 }

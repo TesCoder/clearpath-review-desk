@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "../db";
 import type { AssetView } from "../data";
-import { anthropicModel, isAiConfigured } from "./anthropic";
+import { getClaimModel, isAiConfigured } from "./select";
 import { reviewWithModel } from "./review";
 import { PROMPT_VERSION, type AiFinding, type AiReview } from "./types";
 
@@ -14,7 +14,7 @@ export async function getStoredReview(asset: AssetView): Promise<AiReview | null
   const rows = await db()`
     select status, findings, dropped, missed, reason, model from ai_reviews
     where fingerprint = ${asset.latest.fingerprint} and offer_revision_id = ${asset.terms.revisionId}
-      and placement = ${asset.placement} and prompt_version = ${PROMPT_VERSION}
+      and placement = ${asset.placement} and prompt_version = ${cacheVersion()}
   `;
   if (!rows.length) return null;
   const r = rows[0];
@@ -28,13 +28,16 @@ export async function getStoredReview(asset: AssetView): Promise<AiReview | null
   };
 }
 
+/** Results are kept per prompt version and per model route, so the two routes never mix. */
+const cacheVersion = () => `${PROMPT_VERSION}|${getClaimModel().name}`;
+
 const unavailable = (reason: string): AiReview => ({
   status: "unavailable",
   findings: [],
   dropped: 0,
   missedByModel: [],
   reason,
-  model: anthropicModel.name,
+  model: getClaimModel().name,
 });
 
 /** Runs the claim finder on the ad's latest version, unless a result is already stored. */
@@ -53,12 +56,12 @@ export async function runReview(workspaceId: string, asset: AssetView): Promise<
     return unavailable("The demo's daily limit for AI calls has been reached. The code checks still apply.");
   }
 
-  const review = await reviewWithModel(asset.latest.body, asset.terms, asset.placement, anthropicModel);
+  const review = await reviewWithModel(asset.latest.body, asset.terms, asset.placement, getClaimModel());
   await sql`insert into ai_calls (workspace_id, outcome) values (${workspaceId}, ${review.status})`;
   if (review.status !== "unavailable") {
     await sql`
       insert into ai_reviews (fingerprint, offer_revision_id, placement, prompt_version, status, findings, dropped, missed, reason, model)
-      values (${asset.latest.fingerprint}, ${asset.terms.revisionId}, ${asset.placement}, ${PROMPT_VERSION},
+      values (${asset.latest.fingerprint}, ${asset.terms.revisionId}, ${asset.placement}, ${cacheVersion()},
               ${review.status}, ${sql.json(review.findings)}, ${review.dropped}, ${sql.json(review.missedByModel)},
               ${review.reason}, ${review.model})
       on conflict do nothing

@@ -7,7 +7,7 @@ import { DecisionPanel, type Anchor } from "@/components/DecisionPanel";
 import { MoveForm } from "@/components/MoveForm";
 import { ReviseForm } from "@/components/ReviseForm";
 import { StatusPill } from "@/components/StatusPill";
-import { isAiConfigured } from "@/lib/ai/anthropic";
+import { isAiConfigured } from "@/lib/ai/select";
 import { getStoredReview } from "@/lib/ai/store";
 import type { AiFinding, AiReview } from "@/lib/ai/types";
 import { MAX_COMMENT_CHARS, type Check } from "@/lib/checks";

@@ -9,7 +9,8 @@
     "lint": "eslint",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
     "test": "vitest run",
-    "eval": "LIVE_AI=1 node --env-file-if-exists=.env.local node_modules/vitest/vitest.mjs run src/lib/ai/live.eval.test.ts"
+    "eval": "APP_LLM=api LIVE_AI=1 node --env-file-if-exists=.env.local node_modules/vitest/vitest.mjs run src/lib/ai/live.eval.test.ts",
+    "eval:cli": "APP_LLM=claude-cli EVAL_SAMPLE=3 LIVE_AI=1 node --env-file-if-exists=.env.local node_modules/vitest/vitest.mjs run src/lib/ai/live.eval.test.ts --silent=false"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.12.0",
