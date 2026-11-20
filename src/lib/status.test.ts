@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveStatus, lastApproval, refuseDecision, type AssetState, type DecisionRecord } from "./status";
+import { REVIEWER_TURN, STATUS_LABEL, deriveStatus, lastApproval, refuseDecision, type AssetState, type DecisionRecord } from "./status";
 
 const base: AssetState = {
   latestVersion: { number: 1, fingerprint: "aaa" },
@@ -66,6 +66,64 @@ describe("status", () => {
       ],
     };
     expect(deriveStatus(s)).toBe("approved");
+  });
+});
+
+describe("the offer changes after approval", () => {
+  // The ad is untouched: same words, date and placement. A new offer revision now covers its date.
+  const moved: AssetState = { ...base, currentRevisionId: "pl-winter-r3", decisions: [decision({})] };
+
+  it("the approval stops holding, with its own status, and it is the reviewer's turn", () => {
+    expect(deriveStatus({ ...base, decisions: [decision({})] })).toBe("approved");
+    expect(deriveStatus(moved)).toBe("offer_changed");
+    expect(REVIEWER_TURN).toContain("offer_changed");
+    expect(STATUS_LABEL.offer_changed).toBe("Offer changed after approval, needs review");
+  });
+
+  it("the earlier approval stays on record", () => {
+    expect(lastApproval(moved)?.offerRevisionId).toBe("pl-winter-r1");
+  });
+
+  it("approving again against the new revision holds", () => {
+    const again: AssetState = {
+      ...moved,
+      decisions: [decision({}), decision({ offerRevisionId: "pl-winter-r3", createdAt: "2026-11-21T10:00:00Z" })],
+    };
+    expect(deriveStatus(again)).toBe("approved");
+  });
+
+  it("a second offer change sends it back again", () => {
+    const twice: AssetState = {
+      ...moved,
+      currentRevisionId: "pl-winter-r4",
+      decisions: [decision({}), decision({ offerRevisionId: "pl-winter-r3", createdAt: "2026-11-21T10:00:00Z" })],
+    };
+    expect(deriveStatus(twice)).toBe("offer_changed");
+  });
+
+  it("a moved date is still reported as a move, even when the revision differs too", () => {
+    const s: AssetState = { ...base, plannedDate: "2027-01-12", currentRevisionId: "pl-winter-r2", decisions: [decision({})] };
+    expect(deriveStatus(s)).toBe("rescheduled");
+  });
+
+  it("a request for changes and an unapproved ad are not affected by an offer change", () => {
+    expect(deriveStatus({ ...base, currentRevisionId: "pl-winter-r3", decisions: [decision({ kind: "request_changes" })] })).toBe("changes_requested");
+    expect(deriveStatus({ ...base, currentRevisionId: "pl-winter-r3" })).toBe("new");
+  });
+
+  it("the reviewer can decide on it, against the revision that applies now and no other", () => {
+    const attempt = {
+      role: "reviewer" as const,
+      kind: "approve" as const,
+      versionNumber: 1,
+      fingerprint: "aaa",
+      plannedDate: "2026-12-08",
+      placement: "Comparison site listing",
+      offerRevisionId: "pl-winter-r3",
+    };
+    expect(refuseDecision(attempt, moved)).toBeNull();
+    // A page loaded before the offer changed still shows the old revision: refused.
+    expect(refuseDecision({ ...attempt, offerRevisionId: "pl-winter-r1" }, moved)).toMatch(/offer terms changed/);
   });
 });
 

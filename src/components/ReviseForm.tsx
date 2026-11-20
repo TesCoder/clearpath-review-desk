@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { submitRevision, type FormState } from "@/app/actions";
 import { MAX_NOTE_CHARS, type OfferTerms } from "@/lib/checks";
 import { CopyEditor } from "./CopyEditor";
+import { WordingCheck } from "./WordingCheck";
 
 export function ReviseForm({
   adRef,
@@ -13,6 +14,9 @@ export function ReviseForm({
   terms,
   dateLabel,
   afterApproval,
+  offerId,
+  plannedDate,
+  placement,
 }: {
   adRef: string;
   currentBody: string;
@@ -22,6 +26,10 @@ export function ReviseForm({
   terms: OfferTerms | null;
   dateLabel: string;
   afterApproval: boolean;
+  /** What the ad is checked against, for the optional wording check. */
+  offerId: string;
+  plannedDate: string;
+  placement: string;
 }) {
   const [state, action, pending] = useActionState<FormState, FormData>(submitRevision, { error: null });
   const [body, setBody] = useState(currentBody);
@@ -37,6 +45,7 @@ export function ReviseForm({
         </p>
       ) : null}
       <CopyEditor value={body} onChange={setBody} terms={terms} dateLabel={dateLabel} />
+      <WordingCheck body={body} offerId={offerId} plannedDate={plannedDate} placement={placement} ready={Boolean(terms)} />
       <label className="block">
         <span className="text-sm font-medium text-slate-800">What you changed (optional)</span>
         <textarea

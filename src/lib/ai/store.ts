@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "../db";
+import type { OfferTerms } from "../checks";
 import type { AssetView } from "../data";
 import { finalizeReview, reviewWithModel } from "./review";
 import { getClaimModel, isAiConfigured } from "./select";
@@ -21,14 +22,21 @@ const cacheVersion = () => `${PROMPT_VERSION}|${getClaimModel().name}`;
  */
 export async function getStoredReview(asset: AssetView): Promise<AiReview | null> {
   if (!asset.terms) return null;
+  return getStoredFor({ body: asset.latest.body, fingerprint: asset.latest.fingerprint, terms: asset.terms, placement: asset.placement });
+}
+
+/** What the claim finder reads: one exact text, the offer terms it is compared with, and where it will run. */
+export type ReviewTarget = { body: string; fingerprint: string; terms: OfferTerms; placement: string };
+
+async function getStoredFor(target: ReviewTarget): Promise<AiReview | null> {
   const rows = await db()`
     select findings, dropped, model, addresses_reviewer from ai_reviews
-    where fingerprint = ${asset.latest.fingerprint} and offer_revision_id = ${asset.terms.revisionId}
-      and placement = ${asset.placement} and prompt_version = ${cacheVersion()}
+    where fingerprint = ${target.fingerprint} and offer_revision_id = ${target.terms.revisionId}
+      and placement = ${target.placement} and prompt_version = ${cacheVersion()}
   `;
   if (!rows.length) return null;
   return finalizeReview(
-    asset.latest.body,
+    target.body,
     rows[0].findings as AiFinding[],
     rows[0].dropped,
     rows[0].model,
@@ -69,13 +77,30 @@ const unavailable = (reason: string): AiReview => ({
 
 /** Runs the claim finder on the ad's latest version, unless a result is already stored. */
 export async function runReview(workspaceId: string, asset: AssetView): Promise<AiReview> {
-  const stored = await getStoredReview(asset);
-  if (stored) return stored;
   if (!asset.terms) return unavailable("No offer terms apply on the planned date, so there is nothing to compare with.");
+  return runReviewFor(workspaceId, {
+    body: asset.latest.body,
+    fingerprint: asset.latest.fingerprint,
+    terms: asset.terms,
+    placement: asset.placement,
+  });
+}
+
+/**
+ * Runs the claim finder on one text, unless a result is already stored. The
+ * reviewer's screen and the marketer's wording check both come through here,
+ * so they share the same stored results, the same spend limits and the same
+ * quote checks. A draft the marketer checked and then submitted unchanged
+ * costs no second call when the reviewer opens it.
+ */
+export async function runReviewFor(workspaceId: string, target: ReviewTarget): Promise<AiReview> {
+  const stored = await getStoredFor(target);
+  if (stored) return stored;
   if (!isAiConfigured()) return unavailable("The AI claim finder is not set up on this deployment.");
 
   const sql = db();
-  const terms = asset.terms;
+  const terms = target.terms;
+  const asset = { latest: { body: target.body, fingerprint: target.fingerprint }, placement: target.placement };
   const key = [asset.latest.fingerprint, terms.revisionId, asset.placement, cacheVersion()].join("|");
 
   // Reserve the call before making it. The lock makes the count and the

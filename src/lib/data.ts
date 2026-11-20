@@ -1,10 +1,11 @@
 import "server-only";
 import type postgres from "postgres";
 import { db } from "./db";
+import type { WordingRecord } from "./ai/wording";
 import { analyzeCopy, type CopyAnalysis, type OfferTerms } from "./checks";
 import { findInstructionText, type InstructionFinding } from "./injection";
-import { termsOn, type RevisionTerms } from "./offers";
-import { deriveStatus, type AssetState, type AssetStatus, type DecisionRecord } from "./status";
+import { termsOn, withTimeline, type RevisionTerms } from "./offers";
+import { deriveStatus, lastApproval, type AssetState, type AssetStatus, type DecisionRecord } from "./status";
 
 export type VersionView = {
   id: string;
@@ -13,6 +14,8 @@ export type VersionView = {
   fingerprint: string;
   note: string | null;
   createdAt: string;
+  /** Set when the marketer ran the AI wording check on this exact text before submitting it. */
+  wording: WordingRecord | null;
 };
 
 export type DecisionView = DecisionRecord & { id: string; reviewer: string };
@@ -50,6 +53,8 @@ export type AssetView = {
   flags: number;
   state: AssetState;
   status: AssetStatus;
+  /** The offer terms the most recent approval was checked against, when there is one. */
+  approvedAgainst: RevisionTerms | null;
   /** When the ad last changed hands (a submission, a decision or a move). */
   lastActivityAt: string;
 };
@@ -74,21 +79,33 @@ function toTerms(r: RevisionRow): OfferTerms {
   };
 }
 
-/** Every revision of every offer. Trusted reference data, the same for all visitors. */
 export type { RevisionTerms };
 
 /** The pool, or a transaction: reads inside a transaction see what that transaction has locked. */
 export type Executor = postgres.Sql | postgres.TransactionSql;
 
-export async function loadRevisions(sql: Executor = db()): Promise<RevisionTerms[]> {
+/**
+ * Every offer revision this visitor's demo can see: the shared reference
+ * revisions, plus any added on the Offer sheet page of this workspace. Each
+ * comes back with the dates it is actually in force (see `withTimeline`).
+ */
+export async function loadRevisions(workspaceId: string, sql: Executor = db()): Promise<RevisionTerms[]> {
   const rows = await sql`
     select r.id, r.offer_id, r.revision, r.effective_from::text, r.effective_to::text,
            r.apr_min, r.apr_max, r.origination_fee_pct, r.term_min_months, r.term_max_months,
-           r.source, o.campaign
+           r.source, o.campaign, r.workspace_id
     from offer_revisions r join offers o on o.id = r.offer_id
+    where r.workspace_id is null or r.workspace_id = ${workspaceId}
     order by r.offer_id, r.revision
   `;
-  return rows.map((r) => ({ ...toTerms(r), offerId: r.offer_id as string, revision: r.revision as number }));
+  return withTimeline(
+    rows.map((r) => ({
+      ...toTerms(r),
+      offerId: r.offer_id as string,
+      revision: r.revision as number,
+      addedHere: r.workspace_id !== null,
+    })),
+  );
 }
 
 export async function loadOffers() {
@@ -114,7 +131,7 @@ export async function loadAssets(workspaceId: string, sql: Executor = db()): Pro
       where a.workspace_id = ${workspaceId}
     `,
     sql`
-      select v.id, v.asset_id, v.number, v.body, v.fingerprint, v.note, v.created_at
+      select v.id, v.asset_id, v.number, v.body, v.fingerprint, v.note, v.created_at, v.wording_state, v.wording_notes
       from versions v join assets a on a.id = v.asset_id
       where a.workspace_id = ${workspaceId}
       order by v.number
@@ -142,7 +159,7 @@ export async function loadAssets(workspaceId: string, sql: Executor = db()): Pro
       where workspace_id = ${workspaceId} and asset_id is not null
       group by asset_id
     `,
-    loadRevisions(sql),
+    loadRevisions(workspaceId, sql),
   ]);
 
   const out: AssetView[] = [];
@@ -156,6 +173,7 @@ export async function loadAssets(workspaceId: string, sql: Executor = db()): Pro
         fingerprint: v.fingerprint,
         note: v.note,
         createdAt: iso(v.created_at),
+        wording: v.wording_state ? { state: v.wording_state, notes: v.wording_notes ?? 0 } : null,
       }));
     if (!vs.length) continue;
     const latest = vs[vs.length - 1];
@@ -213,6 +231,7 @@ export async function loadAssets(workspaceId: string, sql: Executor = db()): Pro
       flags: (analysis?.openFlags ?? 0) + instructionText.length,
       state,
       status: deriveStatus(state),
+      approvedAgainst: revisions.find((r) => r.revisionId === lastApproval(state)?.offerRevisionId) ?? null,
       lastActivityAt: last ? iso(last.at) : latest.createdAt,
     });
   }

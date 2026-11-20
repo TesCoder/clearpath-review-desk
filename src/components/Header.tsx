@@ -36,6 +36,9 @@ export function Header({ role }: { role: Role }) {
           <Link href={role === "marketer" ? "/marketer" : "/"} className="text-slate-700 underline-offset-4 hover:underline">
             {role === "marketer" ? "Your ads" : "Queue"}
           </Link>
+          <Link href="/offers" className="text-slate-700 underline-offset-4 hover:underline">
+            Offer sheet
+          </Link>
           <Link href="/measures" className="text-slate-700 underline-offset-4 hover:underline">
             Measures
           </Link>

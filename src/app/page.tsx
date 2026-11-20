@@ -9,11 +9,13 @@ import { getWorkspaceId } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-// Revisions first: the reviewer already knows the ad and the marketer is on a
+// First, ads that were approved and then lost that approval because the offer
+// changed: they may already be scheduled with a claim that is no longer true.
+// Then revisions: the reviewer already knows the ad and the marketer is on a
 // second round, so closing them is the fastest way to get an ad published.
 // Then whatever has waited longest.
 function queueOrder(a: AssetView, b: AssetView): number {
-  const rank = (x: AssetView) => (x.status === "revised" ? 0 : 1);
+  const rank = (x: AssetView) => (x.status === "offer_changed" ? 0 : x.status === "revised" ? 1 : 2);
   return rank(a) - rank(b) || a.lastActivityAt.localeCompare(b.lastActivityAt);
 }
 
@@ -25,6 +27,17 @@ function Flags({ a }: { a: AssetView }) {
   return (
     <span className="font-medium text-red-700">
       {n} flag{n === 1 ? "" : "s"} to check
+    </span>
+  );
+}
+
+/** Why an approved ad is back: which revision it was approved against and which applies now. */
+function OfferReason({ a }: { a: AssetView }) {
+  if (a.status !== "offer_changed" || !a.approvedAgainst || !a.terms) return null;
+  return (
+    <span className="mt-1 block text-xs text-slate-600">
+      Approved against revision {a.approvedAgainst.revision}. Revision {a.terms.revision} now applies on{" "}
+      {formatDate(a.plannedDate)}.
     </span>
   );
 }
@@ -72,6 +85,7 @@ function Rows({
                 <Flags a={a} />
                 <Ai summary={aiFor(a)} />
               </span>
+              <OfferReason a={a} />
               <span className="mt-1 block text-sm text-slate-600">
                 Version {a.latest.number} · publishing{" "}
                 {formatDate(a.plannedDate)} ·{" "}
@@ -121,6 +135,7 @@ function Rows({
                 <td className="px-4 py-3">{a.latest.number}</td>
                 <td className="px-4 py-3">
                   <StatusPill status={a.status} />
+                  <OfferReason a={a} />
                 </td>
                 <td className="px-4 py-3">{formatDate(a.plannedDate)}</td>
                 <td className="px-4 py-3 text-slate-600">
@@ -152,6 +167,7 @@ export default async function Queue(props: PageProps<"/">) {
     .filter((a) => REVIEWER_TURN.includes(a.status))
     .sort(queueOrder);
   const rest = assets.filter((a) => !REVIEWER_TURN.includes(a.status));
+  const offerChanged = waiting.filter((a) => a.status === "offer_changed").length;
   return (
     <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6">
       {reset ? (
@@ -165,8 +181,21 @@ export default async function Queue(props: PageProps<"/">) {
       <h1 className="text-2xl font-semibold">Review queue</h1>
       <p className="mt-1 text-sm text-slate-600">
         {waiting.length} ad{waiting.length === 1 ? "" : "s"} waiting for your
-        decision. Revised ads come first, then the longest wait.
+        decision. {offerChanged ? "Ads whose offer changed after approval come first, then revised ads" : "Revised ads come first"}, then the longest wait.
       </p>
+      {offerChanged ? (
+        <p
+          className="mt-3 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-950"
+          role="status"
+          data-banner="queue-offer-changed"
+        >
+          {offerChanged} approved ad{offerChanged === 1 ? "" : "s"} need{offerChanged === 1 ? "s" : ""} review again because the
+          offer changed. {offerChanged === 1 ? "It is" : "They are"} at the top of the queue.{" "}
+          <Link href="/offers" className="underline">
+            See the offer sheet
+          </Link>
+        </p>
+      ) : null}
       <div className="mt-4">
         {waiting.length ? (
           <Rows items={waiting} waitingLabel ai={ai} />

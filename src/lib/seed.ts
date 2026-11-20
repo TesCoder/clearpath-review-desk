@@ -217,3 +217,12 @@ export async function seedWorkspace(sql: Tx, workspaceId: string): Promise<void>
     }
   }
 }
+
+/** Puts one workspace back to the seeded demo: its ads, its history, and any offer revisions added in it. */
+export async function resetWorkspaceData(sql: Tx, workspaceId: string): Promise<void> {
+  await sql`delete from events where workspace_id = ${workspaceId}`;
+  await sql`delete from assets where workspace_id = ${workspaceId}`;
+  // Offer revisions added in this demo go too. The shared ones are untouched.
+  await sql`delete from offer_revisions where workspace_id = ${workspaceId}`;
+  await seedWorkspace(sql, workspaceId);
+}

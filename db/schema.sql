@@ -152,6 +152,40 @@ create table if not exists ai_pending (
 
 create index if not exists workspaces_created_idx on workspaces (created_at);
 
+-- Offer revisions added in one visitor's demo ----------------------------------
+
+-- The rows above are shared reference data. A revision added on the Offer
+-- sheet page belongs to one workspace: workspace_id is set, no other visitor
+-- sees it, and Reset demo removes it. A shared row is never edited by a
+-- visitor. Which revision is in force on a date is worked out from the start
+-- dates (src/lib/offers.ts), so adding one never rewrites another's end date.
+alter table offer_revisions add column if not exists workspace_id uuid references workspaces (id) on delete cascade;
+alter table offer_revisions add column if not exists created_at timestamptz not null default now();
+alter table offer_revisions drop constraint if exists offer_revisions_offer_id_revision_key;
+create unique index if not exists offer_revisions_shared_uidx
+  on offer_revisions (offer_id, revision) where workspace_id is null;
+create unique index if not exists offer_revisions_workspace_uidx
+  on offer_revisions (workspace_id, offer_id, revision) where workspace_id is not null;
+create index if not exists offer_revisions_workspace_idx on offer_revisions (workspace_id);
+
+-- Set when the marketer ran the optional AI wording check on this exact text
+-- before submitting it: what the check showed them, so the reviewer is told.
+alter table versions add column if not exists wording_state text check (wording_state in ('notes', 'nothing', 'incomplete'));
+alter table versions add column if not exists wording_notes int;
+
+-- A stored AI result goes with the revision it was read against.
+do $$
+begin
+  if exists (
+    select 1 from pg_constraint
+    where conname = 'ai_reviews_offer_revision_id_fkey' and confdeltype <> 'c'
+  ) then
+    alter table ai_reviews drop constraint ai_reviews_offer_revision_id_fkey;
+    alter table ai_reviews add constraint ai_reviews_offer_revision_id_fkey
+      foreign key (offer_revision_id) references offer_revisions (id) on delete cascade;
+  end if;
+end $$;
+
 -- Reference data -------------------------------------------------------------
 
 insert into offers (id, product, campaign) values

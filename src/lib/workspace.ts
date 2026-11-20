@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "./db";
-import { seedWorkspace } from "./seed";
+import { resetWorkspaceData, seedWorkspace } from "./seed";
 import type { Role } from "./status";
 
 const WORKSPACE_COOKIE = "cp_ws";
@@ -38,6 +38,9 @@ export async function getWorkspaceId(): Promise<string> {
     if (!rows.length) return null; // another request for this visitor got there first
     // Housekeeping on a public demo: a workspace lives as long as its cookie
     // (14 days). Older ones, and old call records, are removed as new ones arrive.
+    // Their ads go first, so no decision still points at an offer revision
+    // that is removed with its workspace.
+    await tx`delete from assets where workspace_id in (select id from workspaces where created_at < now() - interval '14 days')`;
     await tx`delete from workspaces where created_at < now() - interval '14 days'`;
     await tx`delete from ai_calls where created_at < now() - interval '7 days'`;
     await seedWorkspace(tx, rows[0].id as string);
@@ -52,11 +55,7 @@ export async function getWorkspaceId(): Promise<string> {
 /** Puts the visitor's workspace back to the seeded demo. */
 export async function resetWorkspace(): Promise<void> {
   const workspaceId = await getWorkspaceId();
-  await db().begin(async (tx) => {
-    await tx`delete from events where workspace_id = ${workspaceId}`;
-    await tx`delete from assets where workspace_id = ${workspaceId}`;
-    await seedWorkspace(tx, workspaceId);
-  });
+  await db().begin((tx) => resetWorkspaceData(tx, workspaceId));
 }
 
 /**

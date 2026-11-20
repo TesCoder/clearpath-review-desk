@@ -27,6 +27,7 @@ export type AssetStatus =
   | "revised" // a newer version answers a request for changes
   | "edited_after_approval" // an approved ad was edited: the new version needs review
   | "rescheduled" // approved, then the date or placement moved
+  | "offer_changed" // approved, then a new offer revision took effect for its date
   | "changes_requested" // waiting for the marketer
   | "approved";
 
@@ -35,12 +36,13 @@ export const STATUS_LABEL: Record<AssetStatus, string> = {
   revised: "Revised, waiting for review",
   edited_after_approval: "Edited after approval, needs review",
   rescheduled: "Rescheduled placement needs review",
+  offer_changed: "Offer changed after approval, needs review",
   changes_requested: "Changes requested",
   approved: "Approved",
 };
 
 /** Statuses that are the reviewer's turn. */
-export const REVIEWER_TURN: AssetStatus[] = ["new", "revised", "edited_after_approval", "rescheduled"];
+export const REVIEWER_TURN: AssetStatus[] = ["new", "revised", "edited_after_approval", "rescheduled", "offer_changed"];
 
 function latestFor(decisions: DecisionRecord[], versionNumber: number): DecisionRecord | null {
   const own = decisions
@@ -65,7 +67,14 @@ export function deriveStatus(state: AssetState): AssetStatus {
   const last = latestFor(state.decisions, state.latestVersion.number);
   if (last) {
     if (last.kind === "request_changes") return "changes_requested";
-    return approvalHolds(last, state) ? "approved" : "rescheduled";
+    if (approvalHolds(last, state)) return "approved";
+    // Nothing about the ad moved: same words, date and placement. Only the
+    // offer terms for that date are no longer the ones it was approved against.
+    const onlyOfferMoved =
+      last.fingerprint === state.latestVersion.fingerprint &&
+      last.plannedDate === state.plannedDate &&
+      last.placement === state.placement;
+    return onlyOfferMoved ? "offer_changed" : "rescheduled";
   }
   const earlierApproval = state.decisions.some(
     (d) => d.kind === "approve" && d.versionNumber < state.latestVersion.number,

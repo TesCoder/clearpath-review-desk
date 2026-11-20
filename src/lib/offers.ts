@@ -2,10 +2,49 @@
 import type { OfferTerms } from "./checks";
 import { formatDate } from "./format";
 
-export type RevisionTerms = OfferTerms & { offerId: string; revision: number };
+export type RevisionTerms = OfferTerms & {
+  offerId: string;
+  revision: number;
+  /** True for a revision added on the Offer sheet page of this visitor's demo. */
+  addedHere?: boolean;
+  /** The revision that took over, when another one started on or after this one's start. */
+  replacedBy?: number | null;
+};
 
 export const PLACEMENTS = ["Comparison site listing", "Blog article", "Email newsletter", "Social post"] as const;
 
+function dayBefore(isoDate: string): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Works out when each revision is in force. A revision applies from its start
+ * date until the next revision of the same offer starts. When two start on
+ * the same date, the higher revision number replaces the other from that
+ * date, so a correction is a new revision and nothing is ever edited.
+ *
+ * Returns copies whose `effectiveTo` is the last day the revision is actually
+ * in force. One that was replaced from its own start date gets an end before
+ * its start, so it applies on no date and stays on record.
+ */
+export function withTimeline<T extends OfferTerms & { offerId: string; revision: number }>(
+  revisions: T[],
+): Array<T & { replacedBy: number | null }> {
+  const later = (a: T, b: T) => a.effectiveFrom.localeCompare(b.effectiveFrom) || a.revision - b.revision;
+  return revisions.map((r) => {
+    const next = revisions
+      .filter((o) => o.offerId === r.offerId && o !== r && later(o, r) > 0)
+      .sort(later)[0];
+    if (!next) return { ...r, replacedBy: null };
+    const cut = dayBefore(next.effectiveFrom);
+    const ends = r.effectiveTo === null || cut < r.effectiveTo;
+    return { ...r, effectiveTo: ends ? cut : r.effectiveTo, replacedBy: ends ? next.revision : null };
+  });
+}
+
+/** The revision in force on a date. Give it revisions that went through `withTimeline`. */
 export function termsOn<T extends OfferTerms & { offerId: string }>(revisions: T[], offerId: string, date: string): T | null {
   return (
     revisions.find(
@@ -28,6 +67,7 @@ export const MAX_ADS_PER_WORKSPACE = 40;
 export const MAX_VERSIONS_PER_AD = 20;
 export const MAX_DECISIONS_PER_AD = 40;
 export const MAX_MOVES_PER_AD = 30;
+export const MAX_ADDED_REVISIONS = 12;
 
 function nextDay(isoDate: string): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
@@ -37,7 +77,10 @@ function nextDay(isoDate: string): string {
 
 /** The date ranges an offer has terms for, with back-to-back revisions joined. */
 export function coverage(revisions: Array<OfferTerms & { offerId: string }>, offerId: string): Array<{ from: string; to: string | null }> {
-  const own = revisions.filter((r) => r.offerId === offerId).sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+  const own = revisions
+    // A revision replaced from its own start date is in force on no date.
+    .filter((r) => r.offerId === offerId && (r.effectiveTo === null || r.effectiveTo >= r.effectiveFrom))
+    .sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
   const out: Array<{ from: string; to: string | null }> = [];
   for (const r of own) {
     const last = out[out.length - 1];
@@ -52,4 +95,60 @@ export function coverageText(revisions: Array<OfferTerms & { offerId: string }>,
   const ranges = coverage(revisions, offerId);
   if (!ranges.length) return "no dates";
   return ranges.map((r) => (r.to ? `${formatDate(r.from)} to ${formatDate(r.to)}` : `${formatDate(r.from)} onward`)).join(" and ");
+}
+
+/** "Dec 1, 2026 to Dec 31, 2026", "Jan 1, 2027 onward", or null when the revision applies on no date. */
+export function inForceText(r: OfferTerms): string | null {
+  if (r.effectiveTo !== null && r.effectiveTo < r.effectiveFrom) return null;
+  return r.effectiveTo ? `${formatDate(r.effectiveFrom)} to ${formatDate(r.effectiveTo)}` : `${formatDate(r.effectiveFrom)} onward`;
+}
+
+export type NewRevisionInput = {
+  aprMin: number;
+  aprMax: number;
+  feePct: number;
+  effectiveFrom: string;
+};
+
+const TWO_DECIMALS = /^\d{1,2}(?:\.\d{1,2})?$/;
+
+/** Reads a percentage typed into the Offer sheet form: digits with up to two decimals, nothing else. */
+export function parsePercent(raw: string): number | null {
+  const t = raw.trim();
+  return TWO_DECIMALS.test(t) ? Number(t) : null;
+}
+
+/**
+ * The rule for a new offer revision, shared by the form and the server.
+ * `inForce` is the revision the new one would replace on its start date, if any.
+ * Returns the reason it is refused, or null.
+ */
+export function refuseRevision(input: NewRevisionInput, inForce: OfferTerms | null): string | null {
+  const { aprMin, aprMax, feePct, effectiveFrom } = input;
+  if (!isIsoDate(effectiveFrom) || effectiveFrom < "2026-01-01" || effectiveFrom > "2028-12-31") {
+    return "Enter an effective date between 2026 and 2028.";
+  }
+  if (![aprMin, aprMax, feePct].every((n) => Number.isFinite(n))) {
+    return "Enter each rate and the fee as a number with up to two decimals, such as 9.49.";
+  }
+  if (aprMin <= 0 || aprMax <= 0) return "An APR must be above 0%.";
+  if (aprMin > aprMax) return "The lowest APR cannot be above the highest APR.";
+  if (feePct < 0) return "The origination fee cannot be below 0%.";
+  if (inForce && inForce.aprMin === aprMin && inForce.aprMax === aprMax && inForce.feePct === feePct) {
+    return `Those are the terms already in effect on ${formatDate(effectiveFrom)}. Change a term, or pick another date.`;
+  }
+  return null;
+}
+
+/** The terms that differ between two revisions, in the words the screen uses. */
+export function termChanges(before: OfferTerms, after: OfferTerms): Array<{ label: string; before: string; after: string; changed: boolean }> {
+  const pct = (n: number | null) => (n === null ? "Not stated" : `${n.toFixed(2)}%`);
+  const months = (r: OfferTerms) => (r.termMinMonths === null ? "Not stated" : `${r.termMinMonths} to ${r.termMaxMonths} months`);
+  const rows: Array<[string, string, string]> = [
+    ["Lowest APR", pct(before.aprMin), pct(after.aprMin)],
+    ["Highest APR", pct(before.aprMax), pct(after.aprMax)],
+    ["Origination fee", pct(before.feePct), pct(after.feePct)],
+    ["Loan terms", months(before), months(after)],
+  ];
+  return rows.map(([label, b, a]) => ({ label, before: b, after: a, changed: a !== b }));
 }

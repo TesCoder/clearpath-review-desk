@@ -3,10 +3,12 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { MAX_COMMENT_CHARS, MAX_COPY_CHARS, MAX_NOTE_CHARS } from "@/lib/checks";
+import { cleanBody } from "@/lib/copy";
 import { loadAsset, loadRevisions, type AssetView, type Executor } from "@/lib/data";
 import { db } from "@/lib/db";
 import { fingerprint } from "@/lib/fingerprint";
 import { formatDate } from "@/lib/format";
+import { addRevision, type AddRevisionResult } from "@/lib/offer-sheet";
 import {
   MAX_ADS_PER_WORKSPACE,
   MAX_DECISIONS_PER_AD,
@@ -17,6 +19,7 @@ import {
   SUPPORTED_PRODUCT,
   coverageText,
   isIsoDate,
+  parsePercent,
   termsOn,
 } from "@/lib/offers";
 import { DEMO_REVIEWER } from "@/lib/seed";
@@ -34,9 +37,10 @@ export async function switchRole(formData: FormData): Promise<void> {
     path: "/",
     maxAge: 60 * 60 * 24 * 14,
   });
-  // Stay on the same ad when the switch was made from an ad's page.
+  // Stay on the same ad when the switch was made from an ad's page. Only
+  // these two fixed shapes are followed, never an address from the form.
   const next = formData.get("next");
-  if (typeof next === "string" && /^\/ads\/AD-\d{1,6}$/.test(next)) redirect(next);
+  if (typeof next === "string" && (/^\/ads\/AD-\d{1,6}$/.test(next) || next === "/offers")) redirect(next);
   redirect(role === "marketer" ? "/marketer" : "/");
 }
 
@@ -45,8 +49,13 @@ export async function switchRole(formData: FormData): Promise<void> {
  * terms there is nothing to check it against, and it would sit with no one
  * able to act on it. Returns the message to show, or null when the date is fine.
  */
-async function uncoveredDate(offerId: string, plannedDate: string, sql: Executor = db()): Promise<string | null> {
-  const revisions = await loadRevisions(sql);
+async function uncoveredDate(
+  workspaceId: string,
+  offerId: string,
+  plannedDate: string,
+  sql: Executor = db(),
+): Promise<string | null> {
+  const revisions = await loadRevisions(workspaceId, sql);
   if (termsOn(revisions, offerId, plannedDate)) return null;
   const campaign = revisions.find((r) => r.offerId === offerId)?.campaign ?? "that offer";
   return `No ${campaign} terms are in effect on ${formatDate(plannedDate)}. The offer has terms for ${coverageText(revisions, offerId)}. Choose a date in that range.`;
@@ -187,10 +196,28 @@ export async function decide(_prev: FormState, formData: FormData): Promise<Form
 
 // Marketer actions ---------------------------------------------------------
 
-function cleanBody(raw: string): string {
-  // Line endings only. The words are kept exactly as typed, hidden characters
-  // included, so the reviewer sees and fingerprints what was submitted.
-  return raw.replace(/\r\n?/g, "\n").trim();
+/**
+ * Whether this exact text, for these terms and this placement, went through
+ * the marketer's wording check, and what it showed. Read from the record the
+ * check wrote on the server, never from the form.
+ */
+async function wordingRecord(
+  sql: Executor,
+  workspaceId: string,
+  fp: string,
+  offerRevisionId: string | null,
+  placement: string,
+): Promise<{ state: string | null; notes: number | null }> {
+  if (!offerRevisionId) return { state: null, notes: null };
+  const rows = await sql`
+    select data from events
+    where workspace_id = ${workspaceId} and type = 'wording_checked'
+      and data->>'fingerprint' = ${fp} and data->>'offerRevisionId' = ${offerRevisionId} and data->>'placement' = ${placement}
+    order by id desc limit 1
+  `;
+  const data = rows[0]?.data as { state?: unknown; notes?: unknown } | undefined;
+  const state = data && ["notes", "nothing", "incomplete"].includes(String(data.state)) ? String(data.state) : null;
+  return { state, notes: state && Number.isInteger(data?.notes) ? (data!.notes as number) : state ? 0 : null };
 }
 
 export async function submitAd(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -226,23 +253,25 @@ export async function submitAd(_prev: FormState, formData: FormData): Promise<Fo
   if (known.product !== SUPPORTED_PRODUCT) {
     return { error: "This desk is set up for personal-loan ads only. Credit card and mortgage ads are not set up yet." };
   }
-  const uncovered = await uncoveredDate(offerId, plannedDate);
+  const uncovered = await uncoveredDate(workspaceId, offerId, plannedDate);
   if (uncovered) return { error: uncovered };
   if (known.ads >= MAX_ADS_PER_WORKSPACE) {
     return { error: "This demo workspace is full. Use Reset demo to start over." };
   }
   const ref = `AD-${Number(known.last) + 1}`;
+  const terms = termsOn(await loadRevisions(workspaceId), offerId, plannedDate);
 
   try {
     await sql.begin(async (tx) => {
+      const checked = await wordingRecord(tx, workspaceId, fingerprint(body), terms?.revisionId ?? null, placement);
       const [asset] = await tx`
         insert into assets (workspace_id, ref, title, affiliate_id, offer_id, placement, planned_date)
         values (${workspaceId}, ${ref}, ${title}, ${affiliateId}, ${offerId}, ${placement}, ${plannedDate})
         returning id
       `;
       const [version] = await tx`
-        insert into versions (asset_id, number, body, fingerprint, note)
-        values (${asset.id}, 1, ${body}, ${fingerprint(body)}, ${note || null})
+        insert into versions (asset_id, number, body, fingerprint, note, wording_state, wording_notes)
+        values (${asset.id}, 1, ${body}, ${fingerprint(body)}, ${note || null}, ${checked.state}, ${checked.notes})
         returning id
       `;
       await tx`
@@ -280,9 +309,10 @@ export async function submitRevision(_prev: FormState, formData: FormData): Prom
       if (body === asset.latest.body) return `The text is the same as version ${asset.latest.number}. Change it first.`;
       if (asset.versions.length >= MAX_VERSIONS_PER_AD) return "This ad has reached the demo's version limit.";
       const number = asset.latest.number + 1;
+      const checked = await wordingRecord(tx, workspaceId, fingerprint(body), asset.terms?.revisionId ?? null, asset.placement);
       const [version] = await tx`
-        insert into versions (asset_id, number, body, fingerprint, note)
-        values (${asset.id}, ${number}, ${body}, ${fingerprint(body)}, ${note || null})
+        insert into versions (asset_id, number, body, fingerprint, note, wording_state, wording_notes)
+        values (${asset.id}, ${number}, ${body}, ${fingerprint(body)}, ${note || null}, ${checked.state}, ${checked.notes})
         returning id
       `;
       await tx`
@@ -314,7 +344,7 @@ export async function moveAd(_prev: FormState, formData: FormData): Promise<Form
     if (asset.plannedDate === plannedDate && asset.placement === placement) {
       return "That is the current date and placement. Change one to move the ad.";
     }
-    const uncovered = await uncoveredDate(asset.offer.id, plannedDate, tx);
+    const uncovered = await uncoveredDate(workspaceId, asset.offer.id, plannedDate, tx);
     if (uncovered) return uncovered;
     const [moves] = await tx`
       select count(*)::int as n from events where asset_id = ${asset.id} and workspace_id = ${workspaceId} and type = 'rescheduled'
@@ -333,4 +363,32 @@ export async function moveAd(_prev: FormState, formData: FormData): Promise<Form
   });
   if (error) return { error };
   redirect(`/ads/${encodeURIComponent(ref)}?done=moved`);
+}
+
+// Compliance actions on the offer sheet --------------------------------------
+
+/** The Offer sheet form. The rule and the write are in src/lib/offer-sheet.ts. */
+export async function addOfferRevision(_prev: FormState, formData: FormData): Promise<FormState> {
+  const offerId = text(formData.get("offerId")).slice(0, 40);
+  const effectiveFrom = text(formData.get("effectiveFrom")).slice(0, 10);
+  const aprMin = parsePercent(text(formData.get("aprMin")).slice(0, 12));
+  const aprMax = parsePercent(text(formData.get("aprMax")).slice(0, 12));
+  const feePct = parsePercent(text(formData.get("feePct")).slice(0, 12));
+
+  if ((await getRole()) !== "reviewer") {
+    return { error: "Switch to the Reviewer view to change the offer sheet. Compliance owns it." };
+  }
+  if (aprMin === null || aprMax === null || feePct === null) {
+    return { error: "Enter each rate and the fee as a number with up to two decimals, such as 9.49." };
+  }
+  const workspaceId = await getWorkspaceId();
+  let result: AddRevisionResult;
+  try {
+    result = await addRevision(workspaceId, offerId, { aprMin, aprMax, feePct, effectiveFrom });
+  } catch (e) {
+    if (isUniqueViolation(e)) return { error: "Another change to the offer sheet arrived at the same moment. Try again." };
+    throw e;
+  }
+  if (!result.ok) return { error: result.error };
+  redirect(`/offers?added=${encodeURIComponent(result.revisionId)}`);
 }

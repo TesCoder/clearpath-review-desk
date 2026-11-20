@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { MAX_COPY_CHARS, analyzeCopy, type OfferTerms } from "@/lib/checks";
+import { findInstructionText } from "@/lib/injection";
 
 /**
  * The ad copy box with the offer check running as the marketer types. The
@@ -25,6 +26,8 @@ export function CopyEditor({
   const analysis = useMemo(() => (terms && value.trim() ? analyzeCopy(value, terms) : null), [value, terms]);
   const open = analysis?.checks.filter((c) => c.status !== "ok") ?? [];
   const fine = analysis?.checks.filter((c) => c.status === "ok") ?? [];
+  // Text written to the reviewer or to an AI. Found in code, as the marketer types, with no model call.
+  const instruction = useMemo(() => (value.trim() ? findInstructionText(value) : []), [value]);
 
   return (
     <div>
@@ -83,12 +86,18 @@ export function CopyEditor({
                 {h.label}. The reviewer will see this flag. Retyping the text usually removes it.
               </li>
             ))}
+            {instruction.map((f, i) => (
+              <li key={`i${i}`} className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950" data-flag="instruction">
+                <q>{f.quote}</q> reads as written to the reviewer or to an AI, not to a consumer ({f.reason}). It has no
+                effect on the checks or on the decision, and the reviewer will see this flag.
+              </li>
+            ))}
             {fine.map((c, i) => (
               <li key={`f${i}`} className="text-sm text-emerald-900">
                 {c.message}
               </li>
             ))}
-            {analysis && analysis.checks.length === 0 && analysis.hidden.length === 0 ? (
+            {analysis && analysis.checks.length === 0 && analysis.hidden.length === 0 && instruction.length === 0 ? (
               <li className="text-sm text-slate-600">
                 No rate or fee found to compare with the offer. This is not a sign-off: other wording in the ad is read by the
                 AI claim finder and by the reviewer.

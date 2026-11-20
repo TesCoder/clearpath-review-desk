@@ -3,11 +3,16 @@ import { SubmitForm } from "@/components/SubmitForm";
 import { loadAffiliates, loadOffers, loadRevisions } from "@/lib/data";
 import { isoDatePlusDays } from "@/lib/format";
 import { SUPPORTED_PRODUCT } from "@/lib/offers";
+import { getWorkspaceId } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
 export default async function NewAd() {
-  const [affiliates, offers, revisions] = await Promise.all([loadAffiliates(), loadOffers(), loadRevisions()]);
+  const [affiliates, offers, revisions] = await Promise.all([
+    loadAffiliates(),
+    loadOffers(),
+    getWorkspaceId().then((ws) => loadRevisions(ws)),
+  ]);
   // Personal loans first: it is the product this desk is set up for.
   const ordered = [...offers].sort((a, b) => Number(b.product === SUPPORTED_PRODUCT) - Number(a.product === SUPPORTED_PRODUCT));
   return (

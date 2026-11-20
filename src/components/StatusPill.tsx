@@ -5,6 +5,7 @@ const STYLE: Record<AssetStatus, string> = {
   revised: "bg-indigo-100 text-indigo-900",
   edited_after_approval: "bg-amber-100 text-amber-900",
   rescheduled: "bg-amber-100 text-amber-900",
+  offer_changed: "bg-red-100 text-red-900",
   changes_requested: "bg-slate-200 text-slate-800",
   approved: "bg-emerald-100 text-emerald-900",
 };

@@ -6,6 +6,7 @@ import { MAX_NOTE_CHARS } from "@/lib/checks";
 import { formatDate } from "@/lib/format";
 import { MAX_TITLE_CHARS, PLACEMENTS, coverageText, isIsoDate, termsOn, type RevisionTerms } from "@/lib/offers";
 import { CopyEditor } from "./CopyEditor";
+import { WordingCheck } from "./WordingCheck";
 
 type Option = { id: string; label: string };
 type OfferOption = Option & { supported: boolean };
@@ -28,6 +29,7 @@ export function SubmitForm({
   const [offerId, setOfferId] = useState(offers.find((o) => o.supported)?.id ?? "");
   const [date, setDate] = useState(defaultDate);
   const [body, setBody] = useState("");
+  const [placement, setPlacement] = useState<string>(PLACEMENTS[0]);
   const terms = isIsoDate(date) ? termsOn(revisions, offerId, date) : null;
 
   return (
@@ -45,7 +47,7 @@ export function SubmitForm({
         </label>
         <label className="block">
           <span className="text-sm font-medium text-slate-800">Where it will run</span>
-          <select name="placement" className={field} required>
+          <select name="placement" value={placement} onChange={(e) => setPlacement(e.target.value)} className={field} required>
             {PLACEMENTS.map((p) => (
               <option key={p} value={p}>
                 {p}
@@ -92,6 +94,7 @@ export function SubmitForm({
           dateLabel={isIsoDate(date) ? formatDate(date) : "that date"}
           covered={coverageText(revisions, offerId)}
         />
+        <WordingCheck body={body} offerId={offerId} plannedDate={date} placement={placement} ready={Boolean(terms)} />
         <label className="block">
           <span className="text-sm font-medium text-slate-800">Note to the reviewer (optional)</span>
           <textarea name="note" rows={2} maxLength={MAX_NOTE_CHARS} className={field} />

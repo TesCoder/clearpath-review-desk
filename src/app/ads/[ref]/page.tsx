@@ -12,13 +12,14 @@ import { isAiConfigured } from "@/lib/ai/select";
 import { getStoredReview } from "@/lib/ai/store";
 import { findingsBeyondChecks } from "@/lib/ai/display";
 import type { AiFinding } from "@/lib/ai/types";
+import { wordingRecordText } from "@/lib/ai/wording";
 import { MAX_COMMENT_CHARS, draftRequest, type Check } from "@/lib/checks";
 import { loadAsset, loadRevisions, type AssetView } from "@/lib/data";
 import { diffWords, hasChanges } from "@/lib/diff";
 import { shortFingerprint } from "@/lib/fingerprint";
 import { formatDate, formatMoment, timeAgo, withArticle } from "@/lib/format";
 import { addedSentences, reviewRevision, type RequestOutcome } from "@/lib/revision";
-import { coverageText } from "@/lib/offers";
+import { coverageText, inForceText, termChanges } from "@/lib/offers";
 import { REVIEWER_TURN, lastApproval } from "@/lib/status";
 import { getRole, getWorkspaceId } from "@/lib/workspace";
 
@@ -133,10 +134,11 @@ const KIND_LABEL: Record<AiFinding["kind"], string> = {
 export default async function AdPage(props: PageProps<"/ads/[ref]">) {
   const { ref } = await props.params;
   const { done } = await props.searchParams;
+  const workspaceId = await getWorkspaceId();
   const [asset, role, revisions] = await Promise.all([
-    getWorkspaceId().then((ws) => loadAsset(ws, decodeURIComponent(ref))),
+    loadAsset(workspaceId, decodeURIComponent(ref)),
     getRole(),
-    loadRevisions(),
+    loadRevisions(workspaceId),
   ]);
   if (!asset) notFound();
 
@@ -250,6 +252,9 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
               nextVersion={latest.number + 1}
               terms={terms}
               dateLabel={formatDate(asset.plannedDate)}
+                offerId={asset.offer.id}
+                plannedDate={asset.plannedDate}
+                placement={asset.placement}
               afterApproval={false}
             />
           </div>
@@ -356,6 +361,22 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
           placement needs its own review.
         </p>
       ) : null}
+      {asset.status === "offer_changed" && approval && approvalTerms && terms ? (
+        <p
+          className="mt-4 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-950"
+          data-banner="offer-changed"
+        >
+          <strong>The offer changed after this ad was approved.</strong> Version{" "}
+          {approval.versionNumber} was approved on{" "}
+          {formatMoment(approval.createdAt)} against offer revision{" "}
+          {approvalTerms.revision}. Revision {terms.revision} now applies on{" "}
+          {formatDate(asset.plannedDate)}, so that approval no longer covers
+          this ad.{" "}
+          {role === "marketer"
+            ? "Do not publish it until it is approved again. You can change the text below without waiting for the reviewer."
+            : "Not a word of the ad changed. The checks below are run against the new terms."}
+        </p>
+      ) : null}
       {asset.status === "edited_after_approval" && approval ? (
         <p className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
           <strong>Edited after approval.</strong> Version{" "}
@@ -369,7 +390,54 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
       <div className="mt-6 grid gap-6 lg:grid-cols-5">
         <div className="space-y-6 lg:col-span-3">
           {role === "marketer" ? requestCard : null}
-          {role === "reviewer" && previous && diff ? (
+          {asset.status === "offer_changed" && approvalTerms && terms ? (
+            <Card title="What changed in the offer" tone="attention">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm" data-table="offer-change">
+                  <thead className="text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="py-1 pr-3 font-medium">Term</th>
+                      <th className="py-1 pr-3 font-medium">
+                        Approved against revision {approvalTerms.revision}
+                      </th>
+                      <th className="py-1 font-medium">
+                        Applies now: revision {terms.revision}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {termChanges(approvalTerms, terms).map((row) => (
+                      <tr key={row.label} data-changed={row.changed}>
+                        <td className="py-1.5 pr-3 text-slate-600">{row.label}</td>
+                        <td className={`py-1.5 pr-3 ${row.changed ? "text-slate-500 line-through" : "text-slate-800"}`}>
+                          {row.before}
+                        </td>
+                        <td className={`py-1.5 ${row.changed ? "font-semibold text-red-900" : "text-slate-800"}`}>
+                          {row.after}
+                          {row.changed ? " (changed)" : ""}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-3 text-sm text-slate-700">
+                Revision {terms.revision} is in effect {inForceText(terms)}.{" "}
+                {analysis && analysis.mismatches > 0
+                  ? `Against it, ${analysis.mismatches} claim${analysis.mismatches === 1 ? "" : "s"} in this ad no longer ${analysis.mismatches === 1 ? "matches" : "match"}: see the checks beside this.`
+                  : analysis && analysis.openFlags > 0
+                    ? "Against it, the number check holds something for you to read: see the checks beside this."
+                    : "The number check finds no mismatch against it. The ad still needs your approval for the new terms."}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                Compared in code from the two offer revisions. No AI call was made when the offer changed.{" "}
+                <Link href="/offers" className="text-indigo-700 underline-offset-2 hover:underline">
+                  Open the offer sheet
+                </Link>
+              </p>
+            </Card>
+          ) : null}
+          {role === "reviewer" && previous && diff && asset.status !== "offer_changed" ? (
             <Card title={`Since version ${previous.number}`} tone="attention">
               {revision && revision.outcomes.length ? (
                 <div>
@@ -638,6 +706,14 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
 
           {terms ? (
             <Card title="AI claim finder">
+              {latest.wording ? (
+                <p
+                  className="mb-3 rounded-md border border-slate-200 bg-slate-50 p-2 text-sm text-slate-800"
+                  data-note="wording-checked"
+                >
+                  {wordingRecordText(latest.wording)}
+                </p>
+              ) : null}
               {aiReview ? (
                 <>
                   {aiReview.status === "incomplete" ? (
@@ -758,6 +834,22 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
               </div>
             </Card>
           ) : null}
+          {role === "marketer" && asset.status === "offer_changed" && terms ? (
+            <Card title="Change the text for the new terms" tone="attention">
+              <ReviseForm
+                adRef={asset.ref}
+                currentBody={latest.body}
+                baseFingerprint={latest.fingerprint}
+                nextVersion={latest.number + 1}
+                terms={terms}
+                dateLabel={formatDate(asset.plannedDate)}
+                offerId={asset.offer.id}
+                plannedDate={asset.plannedDate}
+                placement={asset.placement}
+                afterApproval={false}
+              />
+            </Card>
+          ) : null}
           {role === "reviewer" ? requestCard : null}
           {approval && approvedVersion && approvalTerms ? (
             <Card
@@ -819,6 +911,9 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                   nextVersion={latest.number + 1}
                   terms={terms}
                   dateLabel={formatDate(asset.plannedDate)}
+                offerId={asset.offer.id}
+                plannedDate={asset.plannedDate}
+                placement={asset.placement}
                   afterApproval
                 />
               </Card>
