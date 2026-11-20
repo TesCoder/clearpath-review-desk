@@ -96,6 +96,43 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
       : [];
   const home = role === "marketer" ? "/marketer" : "/";
 
+  // The request and the fix form. The marketer gets it first on the page;
+  // the reviewer sees it beside the offer terms.
+  const requestCard = asset.status === "changes_requested" ? (
+            <Card title="Changes requested" tone="attention">
+              <ul className="space-y-2">
+                {openRequest.map((c) => (
+                  <li key={c.id} className="text-sm text-slate-800">
+                    {c.anchorText ? (
+                      <>
+                        About <q className="font-medium">{c.anchorText}</q>:{" "}
+                      </>
+                    ) : null}
+                    {c.body}
+                  </li>
+                ))}
+              </ul>
+              {role === "reviewer" ? (
+                <p className="mt-3 text-sm text-slate-600">
+                  The ad is with the marketer. It returns to your queue when they submit a new version. To do that step
+                  yourself, switch to the Marketer view above.
+                </p>
+              ) : (
+                <div className="mt-4 border-t border-slate-200 pt-4">
+                  <h3 className="mb-2 text-sm font-semibold text-slate-900">Fix the ad and send it back</h3>
+                  <ReviseForm
+                    adRef={asset.ref}
+                    currentBody={latest.body}
+                    nextVersion={latest.number + 1}
+                    terms={terms}
+                    dateLabel={formatDate(asset.plannedDate)}
+                    afterApproval={false}
+                  />
+                </div>
+              )}
+            </Card>
+          ) : null;
+
   return (
     <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">
       <Link href={home} className="text-sm text-indigo-700 underline-offset-2 hover:underline">
@@ -153,7 +190,8 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-5">
         <div className="space-y-6 lg:col-span-3">
-          {previous && diff ? (
+          {role === "marketer" ? requestCard : null}
+          {role === "reviewer" && previous && diff ? (
             <Card title={`Since version ${previous.number}`} tone="attention">
               {revision && revision.outcomes.length ? (
                 <div>
@@ -341,40 +379,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
               </p>
             </Card>
           ) : null}
-          {asset.status === "changes_requested" ? (
-            <Card title="Changes requested" tone="attention">
-              <ul className="space-y-2">
-                {openRequest.map((c) => (
-                  <li key={c.id} className="text-sm text-slate-800">
-                    {c.anchorText ? (
-                      <>
-                        About <q className="font-medium">{c.anchorText}</q>:{" "}
-                      </>
-                    ) : null}
-                    {c.body}
-                  </li>
-                ))}
-              </ul>
-              {role === "reviewer" ? (
-                <p className="mt-3 text-sm text-slate-600">
-                  The ad is with the marketer. It returns to your queue when they submit a new version. To do that step
-                  yourself, switch to the Marketer view above.
-                </p>
-              ) : (
-                <div className="mt-4 border-t border-slate-200 pt-4">
-                  <h3 className="mb-2 text-sm font-semibold text-slate-900">Fix the ad and send it back</h3>
-                  <ReviseForm
-                    adRef={asset.ref}
-                    currentBody={latest.body}
-                    nextVersion={latest.number + 1}
-                    terms={terms}
-                    dateLabel={formatDate(asset.plannedDate)}
-                    afterApproval={false}
-                  />
-                </div>
-              )}
-            </Card>
-          ) : null}
+          {role === "reviewer" ? requestCard : null}
           {approval && approvedVersion && approvalTerms ? (
             <Card title={asset.status === "approved" ? "Approved copy" : "Earlier approval, still on record"}>
               <p className="whitespace-pre-wrap break-words rounded-md border border-emerald-200 bg-emerald-50 p-3 text-slate-900" id="approved-copy">
