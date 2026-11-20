@@ -14,8 +14,15 @@ export default async function MarketerHome() {
   });
   return (
     <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6">
-      <h1 className="text-2xl font-semibold">Your ads</h1>
-      <p className="mt-1 text-sm text-slate-600">Ads that need your changes come first.</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Your ads</h1>
+          <p className="mt-1 text-sm text-slate-600">Ads that need your changes come first.</p>
+        </div>
+        <Link href="/marketer/new" className="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+          Submit an ad
+        </Link>
+      </div>
       <ul className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
         {mine.map((a) => (
           <li key={a.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3" data-ref={a.ref} data-status={a.status}>

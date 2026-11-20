@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { CopyButton } from "@/components/CopyButton";
 import { CopyView, DiffView } from "@/components/CopyView";
 import { DecisionPanel, type Anchor } from "@/components/DecisionPanel";
+import { MoveForm } from "@/components/MoveForm";
+import { ReviseForm } from "@/components/ReviseForm";
 import { StatusPill } from "@/components/StatusPill";
 import { MAX_COMMENT_CHARS, type Check } from "@/lib/checks";
 import { loadAsset, loadRevisions, type AssetView } from "@/lib/data";
@@ -118,6 +121,17 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
         <p className="mt-4 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm text-slate-800" role="status">
           Request sent. The ad is with the marketer. To see their side, switch to the Marketer view above.{" "}
           <Link href="/" className="underline">Back to the queue</Link>
+        </p>
+      ) : null}
+
+      {done === "submitted" || done === "resubmitted" ? (
+        <p className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900" role="status">
+          Sent for review as version {latest.number}. To see it as the reviewer does, switch to the Reviewer view above.
+        </p>
+      ) : null}
+      {done === "moved" ? (
+        <p className="mt-4 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm text-slate-800" role="status">
+          Moved to {formatDate(asset.plannedDate)} as a {asset.placement.toLowerCase()}. It is back in the review queue.
         </p>
       ) : null}
 
@@ -341,11 +355,24 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                   </li>
                 ))}
               </ul>
-              <p className="mt-3 text-sm text-slate-600">
-                {role === "reviewer"
-                  ? "The ad is with the marketer. It returns to your queue when they submit a new version. To do that step yourself, switch to the Marketer view above."
-                  : "Fix the ad and send it back for review."}
-              </p>
+              {role === "reviewer" ? (
+                <p className="mt-3 text-sm text-slate-600">
+                  The ad is with the marketer. It returns to your queue when they submit a new version. To do that step
+                  yourself, switch to the Marketer view above.
+                </p>
+              ) : (
+                <div className="mt-4 border-t border-slate-200 pt-4">
+                  <h3 className="mb-2 text-sm font-semibold text-slate-900">Fix the ad and send it back</h3>
+                  <ReviseForm
+                    adRef={asset.ref}
+                    currentBody={latest.body}
+                    nextVersion={latest.number + 1}
+                    terms={terms}
+                    dateLabel={formatDate(asset.plannedDate)}
+                    afterApproval={false}
+                  />
+                </div>
+              )}
             </Card>
           ) : null}
           {approval && approvedVersion && approvalTerms ? (
@@ -364,8 +391,29 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                 <p className="mt-2 text-sm text-amber-900">
                   This approval does not cover what is in review now. Do not publish until the current version is approved.
                 </p>
-              ) : null}
+              ) : (
+                <div className="mt-3">
+                  <CopyButton text={approvedVersion.body} />
+                </div>
+              )}
             </Card>
+          ) : null}
+          {role === "marketer" && asset.status === "approved" ? (
+            <>
+              <Card title="Move this ad">
+                <MoveForm adRef={asset.ref} plannedDate={asset.plannedDate} placement={asset.placement} />
+              </Card>
+              <Card title="Change the text">
+                <ReviseForm
+                  adRef={asset.ref}
+                  currentBody={latest.body}
+                  nextVersion={latest.number + 1}
+                  terms={terms}
+                  dateLabel={formatDate(asset.plannedDate)}
+                  afterApproval
+                />
+              </Card>
+            </>
           ) : null}
         </div>
       </div>

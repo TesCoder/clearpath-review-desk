@@ -2,10 +2,11 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { MAX_COMMENT_CHARS } from "@/lib/checks";
+import { MAX_COMMENT_CHARS, MAX_COPY_CHARS, MAX_NOTE_CHARS } from "@/lib/checks";
 import { loadAsset } from "@/lib/data";
 import { db } from "@/lib/db";
 import { fingerprint } from "@/lib/fingerprint";
+import { MAX_ADS_PER_WORKSPACE, MAX_TITLE_CHARS, MAX_VERSIONS_PER_AD, PLACEMENTS, isIsoDate } from "@/lib/offers";
 import { DEMO_REVIEWER } from "@/lib/seed";
 import { refuseDecision, type DecisionKind } from "@/lib/status";
 import { ROLE_COOKIE, getRole, getWorkspaceId, resetWorkspace } from "@/lib/workspace";
@@ -108,4 +109,126 @@ export async function decide(_prev: FormState, formData: FormData): Promise<Form
   });
 
   redirect(`/ads/${encodeURIComponent(ref)}?done=${kind === "approve" ? "approved" : "requested"}`);
+}
+
+// Marketer actions ---------------------------------------------------------
+
+function cleanBody(raw: string): string {
+  // Line endings only. The words are kept exactly as typed, hidden characters
+  // included, so the reviewer sees and fingerprints what was submitted.
+  return raw.replace(/\r\n?/g, "\n").trim();
+}
+
+export async function submitAd(_prev: FormState, formData: FormData): Promise<FormState> {
+  const affiliateId = text(formData.get("affiliateId")).slice(0, 40);
+  const offerId = text(formData.get("offerId")).slice(0, 40);
+  const placement = text(formData.get("placement"));
+  const plannedDate = text(formData.get("plannedDate"));
+  const title = text(formData.get("title")).trim();
+  const body = cleanBody(text(formData.get("body")));
+  const note = text(formData.get("note")).trim();
+
+  if ((await getRole()) !== "marketer") return { error: "Switch to the Marketer view to submit an ad." };
+  if (!(PLACEMENTS as readonly string[]).includes(placement)) return { error: "Choose where the ad will run." };
+  if (!isIsoDate(plannedDate) || plannedDate < "2026-01-01" || plannedDate > "2028-12-31") {
+    return { error: "Enter a planned publication date between 2026 and 2028." };
+  }
+  if (!title || title.length > MAX_TITLE_CHARS) return { error: `Give the ad a short name, up to ${MAX_TITLE_CHARS} characters.` };
+  if (!body) return { error: "Paste the ad copy." };
+  if (body.length > MAX_COPY_CHARS) return { error: `Keep the ad copy under ${MAX_COPY_CHARS} characters.` };
+  if (note.length > MAX_NOTE_CHARS) return { error: `Keep the note under ${MAX_NOTE_CHARS} characters.` };
+
+  const workspaceId = await getWorkspaceId();
+  const sql = db();
+  const [known] = await sql`
+    select (select count(*) from affiliates where id = ${affiliateId})::int as affiliate,
+           (select count(*) from offers where id = ${offerId})::int as offer,
+           (select count(*) from assets where workspace_id = ${workspaceId})::int as ads,
+           (select coalesce(max(substring(ref from 4)::int), 1042) from assets where workspace_id = ${workspaceId}) as last
+  `;
+  if (!known.affiliate) return { error: "Choose an affiliate from the list." };
+  if (!known.offer) return { error: "Choose an offer from the list." };
+  if (known.ads >= MAX_ADS_PER_WORKSPACE) {
+    return { error: "This demo workspace is full. Use Reset demo to start over." };
+  }
+  const ref = `AD-${Number(known.last) + 1}`;
+
+  await sql.begin(async (tx) => {
+    const [asset] = await tx`
+      insert into assets (workspace_id, ref, title, affiliate_id, offer_id, placement, planned_date)
+      values (${workspaceId}, ${ref}, ${title}, ${affiliateId}, ${offerId}, ${placement}, ${plannedDate})
+      returning id
+    `;
+    const [version] = await tx`
+      insert into versions (asset_id, number, body, fingerprint, note)
+      values (${asset.id}, 1, ${body}, ${fingerprint(body)}, ${note || null})
+      returning id
+    `;
+    await tx`
+      insert into events (workspace_id, asset_id, version_id, type, actor_role, data)
+      values (${workspaceId}, ${asset.id}, ${version.id}, 'submitted', 'marketer', ${tx.json({ version: 1 })})
+    `;
+  });
+  redirect(`/ads/${ref}?done=submitted`);
+}
+
+export async function submitRevision(_prev: FormState, formData: FormData): Promise<FormState> {
+  const ref = text(formData.get("ref")).slice(0, 20);
+  const body = cleanBody(text(formData.get("body")));
+  const note = text(formData.get("note")).trim();
+
+  if ((await getRole()) !== "marketer") return { error: "Switch to the Marketer view to change an ad." };
+  if (!body) return { error: "The ad copy cannot be empty." };
+  if (body.length > MAX_COPY_CHARS) return { error: `Keep the ad copy under ${MAX_COPY_CHARS} characters.` };
+  if (note.length > MAX_NOTE_CHARS) return { error: `Keep the note under ${MAX_NOTE_CHARS} characters.` };
+
+  const workspaceId = await getWorkspaceId();
+  const asset = await loadAsset(workspaceId, ref);
+  if (!asset) return { error: "That ad is not in your workspace." };
+  if (body === asset.latest.body) return { error: `The text is the same as version ${asset.latest.number}. Change it first.` };
+  if (asset.versions.length >= MAX_VERSIONS_PER_AD) return { error: "This ad has reached the demo's version limit." };
+  const number = asset.latest.number + 1;
+
+  await db().begin(async (tx) => {
+    const [version] = await tx`
+      insert into versions (asset_id, number, body, fingerprint, note)
+      values (${asset.id}, ${number}, ${body}, ${fingerprint(body)}, ${note || null})
+      returning id
+    `;
+    await tx`
+      insert into events (workspace_id, asset_id, version_id, type, actor_role, data)
+      values (${workspaceId}, ${asset.id}, ${version.id}, 'resubmitted', 'marketer', ${tx.json({ version: number })})
+    `;
+  });
+  redirect(`/ads/${encodeURIComponent(ref)}?done=resubmitted`);
+}
+
+export async function moveAd(_prev: FormState, formData: FormData): Promise<FormState> {
+  const ref = text(formData.get("ref")).slice(0, 20);
+  const plannedDate = text(formData.get("plannedDate"));
+  const placement = text(formData.get("placement"));
+
+  if ((await getRole()) !== "marketer") return { error: "Switch to the Marketer view to move an ad." };
+  if (!(PLACEMENTS as readonly string[]).includes(placement)) return { error: "Choose where the ad will run." };
+  if (!isIsoDate(plannedDate) || plannedDate < "2026-01-01" || plannedDate > "2028-12-31") {
+    return { error: "Enter a date between 2026 and 2028." };
+  }
+  const workspaceId = await getWorkspaceId();
+  const asset = await loadAsset(workspaceId, ref);
+  if (!asset) return { error: "That ad is not in your workspace." };
+  if (asset.plannedDate === plannedDate && asset.placement === placement) {
+    return { error: "That is the current date and placement. Change one to move the ad." };
+  }
+  await db().begin(async (tx) => {
+    await tx`
+      update assets set planned_date = ${plannedDate}, placement = ${placement}
+      where id = ${asset.id} and workspace_id = ${workspaceId}
+    `;
+    await tx`
+      insert into events (workspace_id, asset_id, type, actor_role, data)
+      values (${workspaceId}, ${asset.id}, 'rescheduled', 'marketer',
+              ${tx.json({ from: asset.plannedDate, to: plannedDate, fromPlacement: asset.placement, toPlacement: placement })})
+    `;
+  });
+  redirect(`/ads/${encodeURIComponent(ref)}?done=moved`);
 }

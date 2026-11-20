@@ -1,0 +1,60 @@
+"use client";
+
+import { useActionState, useState } from "react";
+import { submitRevision, type FormState } from "@/app/actions";
+import { MAX_NOTE_CHARS, type OfferTerms } from "@/lib/checks";
+import { CopyEditor } from "./CopyEditor";
+
+export function ReviseForm({
+  adRef,
+  currentBody,
+  nextVersion,
+  terms,
+  dateLabel,
+  afterApproval,
+}: {
+  adRef: string;
+  currentBody: string;
+  nextVersion: number;
+  terms: OfferTerms | null;
+  dateLabel: string;
+  afterApproval: boolean;
+}) {
+  const [state, action, pending] = useActionState<FormState, FormData>(submitRevision, { error: null });
+  const [body, setBody] = useState(currentBody);
+  const unchanged = body === currentBody;
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="ref" value={adRef} />
+      {afterApproval ? (
+        <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950">
+          This ad is approved as it stands. Changing the text creates version {nextVersion}, which must be approved before it
+          can be published. The approval stays with the current text.
+        </p>
+      ) : null}
+      <CopyEditor value={body} onChange={setBody} terms={terms} dateLabel={dateLabel} />
+      <label className="block">
+        <span className="text-sm font-medium text-slate-800">What you changed (optional)</span>
+        <textarea
+          name="note"
+          rows={2}
+          maxLength={MAX_NOTE_CHARS}
+          className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-600"
+        />
+      </label>
+      {state.error ? (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">
+          {state.error}
+        </p>
+      ) : null}
+      <button
+        type="submit"
+        disabled={pending || unchanged}
+        className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+      >
+        {pending ? "Sending..." : `Send version ${nextVersion} for review`}
+      </button>
+      {unchanged ? <p className="text-xs text-slate-500">Change the text above to send a new version.</p> : null}
+    </form>
+  );
+}

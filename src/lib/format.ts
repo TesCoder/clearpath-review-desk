@@ -28,3 +28,8 @@ export function formatMoment(isoTime: string): string {
     timeZoneName: "short",
   }).format(new Date(isoTime));
 }
+
+/** Today plus a number of days, as YYYY-MM-DD. */
+export function isoDatePlusDays(days: number): string {
+  return new Date(Date.now() + days * 86400_000).toISOString().slice(0, 10);
+}

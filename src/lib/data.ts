@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "./db";
 import { analyzeCopy, type CopyAnalysis, type OfferTerms } from "./checks";
+import { termsOn, type RevisionTerms } from "./offers";
 import { deriveStatus, type AssetState, type AssetStatus, type DecisionRecord } from "./status";
 
 export type VersionView = {
@@ -50,8 +51,6 @@ export type AssetView = {
 const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : String(d));
 const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
-export type RevisionTerms = OfferTerms & { offerId: string; revision: number };
-
 type RevisionRow = Record<string, unknown>;
 
 function toTerms(r: RevisionRow): OfferTerms {
@@ -70,6 +69,8 @@ function toTerms(r: RevisionRow): OfferTerms {
 }
 
 /** Every revision of every offer. Trusted reference data, the same for all visitors. */
+export type { RevisionTerms };
+
 export async function loadRevisions(): Promise<RevisionTerms[]> {
   const rows = await db()`
     select r.id, r.offer_id, r.revision, r.effective_from::text, r.effective_to::text,
@@ -79,18 +80,6 @@ export async function loadRevisions(): Promise<RevisionTerms[]> {
     order by r.offer_id, r.revision
   `;
   return rows.map((r) => ({ ...toTerms(r), offerId: r.offer_id as string, revision: r.revision as number }));
-}
-
-export function termsOn<T extends OfferTerms & { offerId: string }>(
-  revisions: T[],
-  offerId: string,
-  date: string,
-): T | null {
-  return (
-    revisions.find(
-      (r) => r.offerId === offerId && r.effectiveFrom <= date && (r.effectiveTo === null || date <= r.effectiveTo),
-    ) ?? null
-  );
 }
 
 export async function loadOffers() {
