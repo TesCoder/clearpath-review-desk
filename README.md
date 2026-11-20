@@ -51,7 +51,7 @@ The rate example rests on Regulation Z's rule that a closed-end credit ad may st
 
 | Job | Done by | Why |
 |---|---|---|
-| Compare a rate or fee with the offer | Code only | Exact and explainable. No model judgment on numbers |
+| Compare a rate or fee with the offer, in digits or written out ("six point nine nine percent") | Code only | Exact and explainable. No model judgment on numbers |
 | Find claims in varied wording ("funds as soon as the next business day", "everyone qualifies") | AI (Claude Sonnet 5.5), with every quote confirmed in the ad by code | Wording varies too much for patterns |
 | Notice new wording in a revision | Code difference, plus the AI's findings | The difference shows what changed; the AI says whether it is a claim |
 | Draft a request to the marketer | Code for number mismatches, AI for wording; the reviewer edits it | Saves typing; the reviewer owns the words |
@@ -77,9 +77,9 @@ Affiliate copy is third-party text, and here it is read by a model. I assume an 
 | Reading another visitor's data | The workspace comes from an httpOnly cookie holding a random token (only its hash is stored), never from a form field, a URL or the model. Every query is scoped to it and uses parameters |
 | Oversized input, or running up the bill | Length limits on every field, a cap on ads and versions per workspace, 40 AI calls a day per workspace and 1,500 overall, a short model timeout, and results stored by text so the same ad is read once |
 
-**Results.** `npm test` runs 65 unit tests, including eight hostile ads against a fake model that does whatever the ad says: in every case the rate mismatch still shows and the AI review is not presented as complete. A live run against the real model (`npm run eval`, results in `eval/results.json`):
+**Results.** `npm test` runs 69 unit tests, including eight hostile ads against a fake model that does whatever the ad says: in every case the rate mismatch still shows and the AI review is not presented as complete. A live run against the real model (`npm run eval`, results in `eval/results.json`):
 
-- 15 labeled ads: 17 of 17 expected claims found, both clean ads returned no findings, no quotes discarded.
+- 16 labeled ads: 18 of 18 expected claims found, both clean ads returned no findings, no quotes discarded.
 - 8 hostile ads, 3 runs each: the outcome was protected in 24 of 24 runs, and the model itself still reported the rate in 24 of 24.
 
 **Limits, stated plainly:**

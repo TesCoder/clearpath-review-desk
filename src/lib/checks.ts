@@ -1,9 +1,9 @@
 // Code-only checks on ad copy. No model is involved anywhere in this file.
 //
-// What code decides: explicit numbers (an APR, a fee percentage, "no
-// origination fee") compared with the offer sheet. Varied wording ("six point
-// nine nine percent", "rock-bottom rates") is left to the AI claim finder and
-// to the reviewer. A percentage this file cannot classify is still shown to
+// What code decides: explicit numbers (an APR or a fee percentage, in digits
+// or written out in words, and "no origination fee") compared with the offer
+// sheet. Looser wording ("single-digit rates", "rock-bottom rates") is left to
+// the AI claim finder and to the reviewer. A percentage this file cannot classify is still shown to
 // the reviewer, so an explicit number never disappears silently.
 
 export type OfferTerms = {
@@ -166,6 +166,36 @@ const FEE_WORDS = /\b(?:origination|fees?)\b/g;
 const NO_FEE =
   /(?:\b(?:no|zero|without(?: an| any)?)|\$\s?0|\b0)\s+(?:(?:origination|upfront|up-front|lender|loan)\s+)?fees?\b/g;
 
+// A percentage written out in words: "six point nine nine percent",
+// "twenty-one percent". An exact, well-defined form, so code reads it. Looser
+// wording ("single-digit rates") is left to the AI claim finder and the reviewer.
+const UNITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+const TENS = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+const DIGIT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+const WORD_PERCENT = new RegExp(
+  `\\b((?:${TENS.join("|")})(?:[\\s-](?:${UNITS.slice(1, 10).join("|")}))?|${[...UNITS].reverse().join("|")})` +
+    `(?:\\s+point((?:\\s+(?:${DIGIT_WORDS.join("|")}|oh))+))?\\s+(?:percent|per cent)\\b`,
+  "g",
+);
+
+function wordsToNumber(whole: string, decimals: string | undefined): number {
+  const parts = whole.split(/[\s-]+/);
+  let value = 0;
+  for (const part of parts) {
+    const tens = TENS.indexOf(part);
+    value += tens >= 0 ? (tens + 2) * 10 : UNITS.indexOf(part);
+  }
+  if (decimals) {
+    const digits = decimals
+      .trim()
+      .split(/\s+/)
+      .map((w) => (w === "oh" ? 0 : DIGIT_WORDS.indexOf(w)))
+      .join("");
+    value = Number(`${value}.${digits}`);
+  }
+  return value;
+}
+
 function sentenceBounds(norm: string, at: number): [number, number] {
   const isBreak = (i: number) =>
     norm[i] === "\n" ||
@@ -205,12 +235,22 @@ export function findClaims(text: string): Claim[] {
     claims.push({ kind: "no_fee", value: 0, ...toOriginal(m.index, m.index + m[0].length) });
   }
 
+  // Percentages in digits, then percentages written out in words.
+  const numbers: Array<{ s: number; e: number; value: number }> = [];
   PERCENT.lastIndex = 0;
   for (let m = PERCENT.exec(lower); m; m = PERCENT.exec(lower)) {
-    const s = m.index;
-    let e = s + m[0].length;
+    numbers.push({ s: m.index, e: m.index + m[0].length, value: Number(m[1].replace(",", ".")) });
+  }
+  WORD_PERCENT.lastIndex = 0;
+  for (let m = WORD_PERCENT.exec(lower); m; m = WORD_PERCENT.exec(lower)) {
+    numbers.push({ s: m.index, e: m.index + m[0].length, value: wordsToNumber(m[1], m[2]) });
+  }
+
+  for (const n of numbers) {
+    const s = n.s;
+    let e = n.e;
     if (noFeeSpans.some(([a, b]) => s >= a && s < b)) continue;
-    const value = Number(m[1].replace(",", "."));
+    const value = n.value;
     const [ss, se] = sentenceBounds(lower, s);
     const sentence = lower.slice(ss, se);
     const rate = nearest(RATE_WORDS, sentence, s - ss);
@@ -224,6 +264,12 @@ export function findClaims(text: string): Claim[] {
   }
 
   return claims.sort((a, b) => a.start - b.start);
+}
+
+/** The claim's own words with the number replaced, or a plain figure when the number was written in words. */
+function withNumber(claim: Claim, value: string): string {
+  if (/\d/.test(claim.quote)) return claim.quote.replace(/\d{1,3}(?:[.,]\d{1,3})?/, value);
+  return /apr\s*$/i.test(claim.quote) ? `${value}% APR` : `${value}%`;
 }
 
 function pct(n: number): string {
@@ -254,7 +300,7 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         status: "mismatch",
         message: `The ad says ${pct(claim.value)} APR. The lowest APR on the ${terms.campaign} offer ${since} is ${pct(terms.aprMin)}.`,
         offerValue: pct(terms.aprMin),
-        suggestion: claim.quote.replace(/\d{1,3}(?:[.,]\d{1,3})?/, terms.aprMin.toFixed(2)),
+        suggestion: withNumber(claim, terms.aprMin.toFixed(2)),
       };
     }
     if (claim.value > terms.aprMax) {
@@ -263,7 +309,7 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         status: "mismatch",
         message: `The ad says ${pct(claim.value)} APR. The highest APR on the ${terms.campaign} offer ${since} is ${pct(terms.aprMax)}.`,
         offerValue: pct(terms.aprMax),
-        suggestion: claim.quote.replace(/\d{1,3}(?:[.,]\d{1,3})?/, terms.aprMax.toFixed(2)),
+        suggestion: withNumber(claim, terms.aprMax.toFixed(2)),
       };
     }
     return {
@@ -290,7 +336,7 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         status: "mismatch",
         message: `The ad says a ${pct(claim.value)} fee. The ${terms.campaign} offer ${since} lists a ${pct(terms.feePct)} origination fee.`,
         offerValue: pct(terms.feePct),
-        suggestion: claim.quote.replace(/\d{1,3}(?:[.,]\d{1,3})?/, String(terms.feePct)),
+        suggestion: withNumber(claim, String(terms.feePct)),
       };
     }
     return {

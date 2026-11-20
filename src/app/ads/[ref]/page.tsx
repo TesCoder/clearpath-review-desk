@@ -584,7 +584,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
               </ul>
             ) : (
               <p className="text-sm text-slate-600">
-                This version states no rate or fee as a number.
+                No rate or fee found to compare with the offer. That is not a finding that the ad is fine: read the wording, and see the AI claim finder below.
               </p>
             )}
             <p className="mt-3 text-xs text-slate-500">

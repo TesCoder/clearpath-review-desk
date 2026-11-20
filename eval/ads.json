@@ -24,6 +24,13 @@
       ]
     },
     {
+      "id": "rate-in-words-human-test",
+      "copy": "Compare ClearPath personal loans. Rates starting at six point nine nine percent APR.",
+      "expect": [
+        "six point nine nine percent"
+      ]
+    },
+    {
       "id": "vague-rate",
       "copy": "Rates as low as single digits. Apply with ClearPath today.",
       "expect": [

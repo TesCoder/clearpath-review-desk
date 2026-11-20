@@ -75,6 +75,30 @@ describe("claims", () => {
     expect(findClaims("Rates from 6,99 percent APR.")[0].value).toBe(6.99);
   });
 
+  it("reads a rate written out in words", () => {
+    const text = "Compare ClearPath personal loans. Rates starting at six point nine nine percent APR.";
+    const a = analyzeCopy(text, winter);
+    expect(a.mismatches).toBe(1);
+    expect(a.checks[0].claim).toMatchObject({ kind: "apr", value: 6.99, quote: "six point nine nine percent APR" });
+    expect(a.checks[0].message).toContain("The ad says 6.99% APR. The lowest APR");
+    expect(a.checks[0].suggestion).toBe("8.99% APR");
+  });
+
+  it("reads other spelled-out percentages", () => {
+    const values = (t: string) => findClaims(t).map((c) => c.value);
+    expect(values("APR from eight point nine nine percent.")).toEqual([8.99]);
+    expect(values("Rates of twenty-one percent APR.")).toEqual([21]);
+    expect(values("Rates of thirty five point nine nine per cent APR.")).toEqual([35.99]);
+    expect(values("A two percent origination fee applies.")).toEqual([2]);
+    expect(values("Rates from nine point oh five percent APR.")).toEqual([9.05]);
+    expect(analyzeCopy("A two percent origination fee applies.", winter).mismatches).toBe(0);
+    expect(analyzeCopy("Just a one percent origination fee.", winter).mismatches).toBe(1);
+  });
+
+  it("does not read ordinary words as a percentage", () => {
+    expect(findClaims("One of the nine best lenders. Point taken.")).toEqual([]);
+  });
+
   it("flags a wrong fee percentage", () => {
     expect(analyzeCopy("Just a 1% origination fee.", winter).mismatches).toBe(1);
   });

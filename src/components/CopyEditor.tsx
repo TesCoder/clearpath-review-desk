@@ -82,7 +82,10 @@ export function CopyEditor({
               </li>
             ))}
             {analysis && analysis.checks.length === 0 && analysis.hidden.length === 0 ? (
-              <li className="text-sm text-slate-600">No rate or fee is stated as a number, so there is nothing to compare.</li>
+              <li className="text-sm text-slate-600">
+                No rate or fee found to compare with the offer. This is not a sign-off: other wording in the ad is read by the
+                AI claim finder and by the reviewer.
+              </li>
             ) : null}
           </ul>
         )}

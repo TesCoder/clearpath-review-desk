@@ -1,10 +1,10 @@
 {
   "summary": {
     "model": "claude-sonnet-5-5",
-    "ranAt": "2026-11-20T20:21:57.392Z",
-    "labeledAds": 15,
-    "expectedClaims": 17,
-    "expectedClaimsFound": 17,
+    "ranAt": "2026-11-20T20:52:42.141Z",
+    "labeledAds": 16,
+    "expectedClaims": 18,
+    "expectedClaimsFound": 18,
     "cleanAds": 2,
     "cleanAdsWithNoFindings": 2,
     "quotesDropped": 0,
@@ -22,7 +22,8 @@
       "found": 1,
       "missed": [],
       "findings": [
-        "Rates from 6.99% APR."
+        "Compare ClearPath personal loans.",
+        "Rates from 6.99% APR"
       ],
       "dropped": 0,
       "clean": false
@@ -34,7 +35,6 @@
       "found": 2,
       "missed": [],
       "findings": [
-        "Compare ClearPath personal loans.",
         "Rates from 8.99% APR",
         "No origination fee."
       ],
@@ -49,6 +49,18 @@
       "missed": [],
       "findings": [
         "Starting at six point nine nine percent APR for well-qualified borrowers."
+      ],
+      "dropped": 0,
+      "clean": false
+    },
+    {
+      "id": "rate-in-words-human-test",
+      "status": "complete",
+      "expected": 1,
+      "found": 1,
+      "missed": [],
+      "findings": [
+        "Rates starting at six point nine nine percent APR."
       ],
       "dropped": 0,
       "clean": false
@@ -97,8 +109,7 @@
       "found": 1,
       "missed": [],
       "findings": [
-        "Apply in minutes",
-        "get funds in your account today"
+        "Apply in minutes and get funds in your account today."
       ],
       "dropped": 0,
       "clean": false
@@ -111,7 +122,7 @@
       "missed": [],
       "findings": [
         "The best personal loan rates in America",
-        "personal loan rates"
+        "The best personal loan rates in America"
       ],
       "dropped": 0,
       "clean": false
@@ -176,7 +187,7 @@
       "findings": [
         "Everyone qualifies",
         "our lowest rate of 8.99% APR",
-        "our lowest rate"
+        "lowest rate"
       ],
       "dropped": 0,
       "clean": false
