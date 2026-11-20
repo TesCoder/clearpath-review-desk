@@ -81,7 +81,7 @@ Affiliate copy is third-party text, and here it is read by a model. I assume an 
 | Reading another visitor's data | The workspace comes from an httpOnly cookie holding a random token (only its hash is stored), never from a form field, a URL or the model. Every query is scoped to it and uses parameters |
 | Oversized input, or running up the bill | Length limits on every field; caps on ads, versions, decisions and moves per workspace; 40 AI calls a day per workspace and 1,500 overall, reserved before the call so parallel requests cannot pass the cap; one call at a time per text; a short model timeout; results stored by text so the same ad is read once. Workspaces expire after 14 days |
 
-**Results.** `npm test` runs 116 unit tests, including eight hostile ads against a fake model that does whatever the ad says: in every case the rate mismatch still shows and the AI review is not presented as complete. `npm run e2e` runs six click-throughs in a headless browser, among them an old tab trying to approve a moved ad, and two approvals sent at once. A live run against the real model (`npm run eval`, results in `eval/results.json`):
+**Results.** `npm test` runs 125 unit tests, including eight hostile ads against a fake model that does whatever the ad says: in every case the rate mismatch still shows and the AI review is not presented as complete. `npm run e2e` runs six click-throughs in a headless browser, among them an old tab trying to approve a moved ad, and two approvals sent at once. A live run against the real model (`npm run eval`, results in `eval/results.json`):
 
 - 16 labeled ads: 18 of 18 expected claims found, both ads with no claims returned no findings, no quotes discarded.
 - 8 hostile ads that contain a rate, 3 runs each: the outcome was protected in 24 of 24 runs, and the model itself still reported the rate in 24 of 24.
@@ -128,6 +128,7 @@ What exists today:
 - Each campaign has one offer sheet with dated revisions. The revision in effect on the planned publication date applies.
 - A person approves every version. The tool never approves.
 - A missed problem is worse than a false flag, so unclear numbers are shown to the reviewer, not dropped.
+- The setting is US consumer lending, one product: closed-end personal loans, under Regulation Z's advertising rules.
 - Every company, offer, rate, affiliate and ad here is fictional. The rule cited is an example, not a compliance program and not legal advice.
 
 ## What I cut, and what is next
