@@ -16,7 +16,7 @@ async function reviseTo(browser, text) {
   await page.fill('textarea[name=body]', text);
   await page.click('button:has-text("Send version 3 for review")');
   await page.click('button:has-text("Review version 3 as the reviewer")');
-  await page.waitForSelector('button[type=submit]:has-text("Approve version 3")');
+  await page.waitForSelector('form[aria-label="Your decision"]');
   const since = await page.innerText('section:has(h2:has-text("Since version 2"))');
   return since.replace(/\n+/g, ' | ');
 }
@@ -33,5 +33,6 @@ async function reviseTo(browser, text) {
   ok('the waiver asks the reviewer to confirm', /Wording changed, please confirm/i.test(waived) && /Confirm the revision addresses your request/.test(waived));
   ok('the waiver sentence is shown as added wording to read', /Wording added in this version/i.test(waived) && /We waive the origination fee for every borrower/.test(waived));
   ok('the waiver gets no "nothing was added" line', !/Nothing was added in this version/.test(waived));
+  ok('the waiver sentence is listed once, not twice', (waived.match(/We waive the origination fee for every borrower/g) || []).length <= 2);
   await browser.close();
 })().catch(e => { console.error('SCRIPT ERROR', e.message.split('\n')[0]); process.exit(1); });

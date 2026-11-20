@@ -109,8 +109,14 @@ describe("claims", () => {
     }
   });
 
-  it("does not treat a late-fee or prepayment claim as the origination fee", () => {
-    expect(findClaims("No prepayment fee. No late fees.")).toEqual([]);
+  it("does not treat a late-fee or prepayment claim as the origination fee, and holds it for the reviewer", () => {
+    const a = analyzeCopy("No prepayment fee. No late fees.", winter);
+    expect(a.claims.map((c) => [c.kind, c.quote])).toEqual([
+      ["unclassified", "No prepayment fee"],
+      ["unclassified", "No late fees"],
+    ]);
+    expect(a.mismatches).toBe(0);
+    expect(a.checks.every((c) => c.status === "needs_reviewer")).toBe(true);
   });
 
   it("shows a percentage it cannot classify instead of dropping it", () => {
@@ -157,5 +163,89 @@ describe("hidden text", () => {
 
   it("clean copy has no hidden-text findings", () => {
     expect(findHiddenText(V2)).toEqual([]);
+  });
+});
+
+// The approved forms and the fallback, with the examples from the final review.
+// None of these involve a model: this is what the screen shows when the AI
+// returns nothing at all.
+describe("only a figure read whole is ever called a match", () => {
+  const statuses = (text: string) => analyzeCopy(text, winter).checks.map((c) => [c.claim.quote, c.status]);
+
+  it("an ordinary in-range rate still matches, and a low rate still flags", () => {
+    expect(statuses("From 8.99% APR.")).toEqual([["8.99% APR", "ok"]]);
+    expect(statuses("From 6.99% APR.")).toEqual([["6.99% APR", "mismatch"]]);
+    expect(statuses("Rates starting at six point nine nine percent APR.")).toEqual([["six point nine nine percent APR", "mismatch"]]);
+  });
+
+  it("a range joined by a dash is held whole, with no match for its upper figure", () => {
+    for (const text of ["APRs of 5.99-35.99% for qualified borrowers.", "APRs of 5.99\u201335.99% for qualified borrowers.", "Rates from 5.99 to 35.99% APR."]) {
+      const a = analyzeCopy(text, winter);
+      expect(a.checks.some((c) => c.status === "ok"), text).toBe(false);
+      expect(a.checks.some((c) => c.status === "needs_reviewer" && c.claim.quote.includes("5.99") && c.claim.quote.includes("35.99")), text).toBe(true);
+    }
+  });
+
+  it("a range with a percent sign on each figure is read, and its low end flags", () => {
+    expect(statuses("Rates from 5.99% to 35.99% APR.")).toEqual([
+      ["5.99%", "mismatch"],
+      ["35.99% APR", "ok"],
+    ]);
+  });
+
+  it("unusual digits are read by their plain value: a low rate flags, an in-range one is held, never matched", () => {
+    const low = analyzeCopy("Rates from \u{1D7DE}.\u{1D7E1}\u{1D7E1}% APR.", winter); // double-struck 6.99
+    expect(low.mismatches).toBe(1);
+    expect(low.checks[0].message).toContain("The ad says 6.99% APR");
+    const inRange = analyzeCopy("Rates from \u{1D7E0}.\u{1D7E1}\u{1D7E1}% APR.", winter); // double-struck 8.99
+    expect(inRange.checks.map((c) => c.status)).toEqual(["needs_reviewer"]);
+    expect(inRange.hidden.some((h) => h.kind === "foreign_digit")).toBe(true);
+  });
+
+  it("an unusual percent sign, or extra spaces before it, is held", () => {
+    for (const text of ["Rates from 6.99\u066A APR.", "Rates from 6.99  % APR."]) {
+      const a = analyzeCopy(text, winter);
+      expect(a.checks.some((c) => c.status === "ok"), text).toBe(false);
+      expect(a.checks.some((c) => c.status === "needs_reviewer" && c.claim.quote.includes("6.99")), text).toBe(true);
+    }
+  });
+
+  it('"no-fee" and other fee wording with no figure is held, even beside a rate that was read', () => {
+    for (const text of ["Rates from 8.99% APR on no-fee loans.", "No hidden fees, ever.", "We waive the origination fee for every borrower.", "Fee-free borrowing from 8.99% APR."]) {
+      const a = analyzeCopy(text, winter);
+      expect(a.checks.some((c) => c.status === "needs_reviewer"), text).toBe(true);
+      expect(a.openFlags, text).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("a rate mentioned with no figure is held", () => {
+    expect(statuses("Rates as low as single digits.")).toEqual([["Rates as low as single digits", "needs_reviewer"]]);
+  });
+
+  it("a percentage next to the word interest alone is not called an APR", () => {
+    expect(statuses("Cut your interest costs by up to 30%.")).toEqual([["30%", "needs_reviewer"]]);
+  });
+
+  it("a letter that lower-cases to two characters does not move the highlight", () => {
+    const text = "\u0130\u0130\u0130\u0130 Rates from 6.99% APR today.";
+    const a = analyzeCopy(text, winter);
+    expect(a.checks[0].claim.quote).toBe("6.99% APR");
+    expect(text.slice(a.checks[0].claim.start, a.checks[0].claim.end)).toBe("6.99% APR");
+  });
+
+  it("every quote is the exact words at its position, on every example here", () => {
+    const texts = ["APRs of 5.99-35.99% for qualified borrowers.", "Rates from 6.99\u066A APR.", "Rates from 8.99% APR on no-fee loans.", "\u0130 No hidden fees. 5 to 9 percent rates."];
+    for (const t of texts) for (const c of findClaims(t)) expect(t.slice(c.start, c.end)).toBe(c.quote);
+  });
+
+  it("clean seeded copy gains no flags", () => {
+    for (const text of [
+      "Compare ClearPath personal loans. Rates from 8.99% APR.",
+      "ClearPath personal loans from 8.99% to 35.99% APR. A 2% origination fee applies. Terms from 24 to 60 months.",
+      "Planning a big purchase? ClearPath personal loans start at 8.99% APR. A 2% origination fee applies.",
+      "ClearPath personal loans: fixed rates from 8.99% APR. Funds as soon as the next business day.",
+    ]) {
+      expect(analyzeCopy(text, winter).openFlags, text).toBe(0);
+    }
   });
 });

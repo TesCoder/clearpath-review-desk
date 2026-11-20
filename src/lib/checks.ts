@@ -1,6 +1,6 @@
 // Code-only checks on ad copy. No model is involved anywhere in this file.
 //
-// Decision-logic rounds: 2 (llm-first-decision-architecture.mdc section 6).
+// Decision-logic rounds: 3 (llm-first-decision-architecture.mdc section 6).
 // Decision counted: whether a claim in ad copy "matches" the offer, "does not
 // match", or "needs the reviewer".
 //   Round 1, 2026-11-20: the approver's test of the submit form found a rate
@@ -8,14 +8,28 @@
 //     out in words.
 //   Round 2, 2026-11-20: an independent review found more forms read wrongly
 //     or not at all (ranges, unusual digits and percent signs, "no-fee").
-//     Not implemented. At two rounds the logic stops growing until the
-//     approver chooses the split between exact forms in code and everything
-//     else held for the reviewer.
+//     Stopped there. The approver chose the split the same day ("Yes, narrow
+//     it"): exact forms in code, everything else held for the reviewer.
+//   Round 3, 2026-11-20: that narrowing, below. It adds no accepted form.
 //
-// What code decides: explicit numbers (an APR or a fee percentage, in digits
-// or written out in words, and "no origination fee") compared with the offer
-// sheet. Looser wording ("single-digit rates", "rock-bottom rates") is left to
-// the AI claim finder and to the reviewer. A percentage this file cannot classify is still shown to
+// The only forms this file reads as a figure (the approved forms):
+//   1. digits, an optional decimal part, at most one space, then "%",
+//      "percent" or "per cent"                          ("8.99%", "2 percent")
+//   2. the same written out in words          ("six point nine nine percent")
+//   3. "no", "zero", "without", "$0" or "0", then an optional "origination",
+//      "upfront", "lender" or "loan", then "fee" or "fees"  ("no origination fee")
+// A figure is called a rate only when "APR", "annual percentage rate" or
+// "rate" is in its sentence, and a fee only when "fee" or "origination" is.
+// Everything else is held open as "needs the reviewer": any other number in a
+// sentence about rates, fees or percentages, and any sentence that mentions a
+// rate or a fee with no figure this file can read. Nothing is matched on a
+// guess, and nothing is passed over silently. Do not add a form here without
+// the approver's word.
+//
+// What code decides: explicit figures in the approved forms above, compared
+// with the offer sheet. Looser wording ("single-digit rates", "we waive the
+// fee") is shown to the reviewer as unread, and left to the AI claim finder
+// and the reviewer to judge. A percentage this file cannot classify is still shown to
 // the reviewer, so an explicit number never disappears silently.
 
 export type OfferTerms = {
@@ -41,6 +55,8 @@ export type Claim = {
   /** Offsets into the submitted copy. */
   start: number;
   end: number;
+  /** Set when a whole sentence is held because it mentions a rate or a fee with nothing the check could read. */
+  heldSentence?: true;
 };
 
 export type CheckStatus = "ok" | "mismatch" | "needs_reviewer";
@@ -88,8 +104,8 @@ function digitValue(ch: string): number | null {
 }
 
 /**
- * A copy of the text for matching: hidden characters removed, compatibility
- * forms folded (full-width "％" becomes "%"), every decimal digit made ASCII.
+ * A lower-case copy of the text for matching: hidden characters removed,
+ * compatibility forms folded (full-width "％" becomes "%"), every decimal digit made ASCII.
  * `map[i]` is the offset in the original text of normalized character i, and
  * the last entry is the original length, so spans can be mapped back.
  */
@@ -101,11 +117,15 @@ export function normalizeWithMap(text: string): { norm: string; map: number[] } 
     const at = i;
     i += ch.length;
     if (isHidden(ch)) continue;
-    const digit = digitValue(ch);
-    const folded = digit !== null ? String(digit) : ch.normalize("NFKC");
-    for (const unit of folded) {
-      for (let k = 0; k < unit.length; k++) {
-        norm += unit[k];
+    // Compatibility forms first (full-width and mathematical digits become
+    // plain digits), then any remaining decimal digit by its value, then lower
+    // case. Lower-casing happens here so the map stays aligned even when a
+    // letter lower-cases to two characters.
+    for (const unit of ch.normalize("NFKC")) {
+      const digit = digitValue(unit);
+      const out = digit !== null ? String(digit) : unit.toLowerCase();
+      for (let k = 0; k < out.length; k++) {
+        norm += out[k];
         map.push(at);
       }
     }
@@ -171,8 +191,13 @@ export function findHiddenText(text: string): HiddenTextFinding[] {
 }
 
 const PERCENT = /(\d{1,3}(?:[.,]\d{1,3})?)\s?(?:%|percent\b|per cent\b)/g;
-const RATE_WORDS = /\b(?:aprs?|annual percentage rates?|rates?|interest)\b/g;
+// A figure is a rate only next to these words. "Interest" alone is not enough
+// ("cut your interest costs by 30%" is not an APR): it is held for the reviewer.
+const RATE_WORDS = /\b(?:aprs?|annual percentage rates?|rates?)\b/g;
 const FEE_WORDS = /\b(?:origination|fees?)\b/g;
+// Words that make a sentence one the reviewer should read when no figure in it was read.
+const TOPIC_WORDS = /\b(?:aprs?|annual percentage rates?|rates?|interest|origination|fees?|percent|per cent)\b|[%\u066A\uFE6A]/g;
+const ANY_NUMBER = /\d+(?:[.,]\d+)*/g;
 // "No fee" about the loan itself. "No late fee" or "no prepayment fee" are
 // different claims and are not matched here.
 const NO_FEE =
@@ -231,19 +256,29 @@ function nearest(re: RegExp, sentence: string, at: number): number {
 }
 
 export function findClaims(text: string): Claim[] {
-  const { norm, map } = normalizeWithMap(text);
-  const lower = norm.toLowerCase();
+  const { norm: lower, map } = normalizeWithMap(text);
   const claims: Claim[] = [];
   const toOriginal = (s: number, e: number) => {
-    const start = map[s];
-    const end = map[e];
+    let start = map[s];
+    let end = map[e];
+    // If the words at that position do not normalize back to what was matched,
+    // the position cannot be trusted: quote the whole sentence instead.
+    if (normalizeWithMap(text.slice(start, end)).norm !== lower.slice(s, e)) {
+      const [ss, se] = sentenceBounds(lower, s);
+      start = map[ss];
+      end = map[se];
+    }
     return { start, end, quote: text.slice(start, end) };
   };
 
+  /** Spans already read as a claim, and where each figure sits in the normalized text. */
+  const read: Array<[number, number]> = [];
+  const figureSpans = new Map<Claim, [number, number]>();
   NO_FEE.lastIndex = 0;
   const noFeeSpans: Array<[number, number]> = [];
   for (let m = NO_FEE.exec(lower); m; m = NO_FEE.exec(lower)) {
     noFeeSpans.push([m.index, m.index + m[0].length]);
+    read.push([m.index, m.index + m[0].length]);
     claims.push({ kind: "no_fee", value: 0, ...toOriginal(m.index, m.index + m[0].length) });
   }
 
@@ -272,7 +307,69 @@ export function findClaims(text: string): Claim[] {
     // Include a directly following "APR" in the quoted words.
     const tail = /^\s?apr\b/.exec(lower.slice(e));
     if (kind === "apr" && tail) e += tail[0].length;
-    claims.push({ kind, value, ...toOriginal(s, e) });
+    const claim: Claim = { kind, value, ...toOriginal(s, e) };
+    claims.push(claim);
+    figureSpans.set(claim, [n.s, e]);
+    read.push([s, e]);
+  }
+
+  // Held for the reviewer, never matched and never dropped:
+  // (a) any other number in a sentence about rates, fees or percentages. If it
+  //     is joined to a figure that was read ("5.99-35.99%", "5.99 to 35.99%"),
+  //     the whole expression is held, and the figure that was read is no
+  //     longer reported by itself: only half of the claim was understood.
+  const inRead = (s: number, e: number) => read.some(([a, b]) => s < b && a < e);
+  const JOIN = /^\s*(?:-|\u2013|\u2014|to|and|\/)?\s*$/;
+  ANY_NUMBER.lastIndex = 0;
+  for (let m = ANY_NUMBER.exec(lower); m; m = ANY_NUMBER.exec(lower)) {
+    let s = m.index;
+    let e = s + m[0].length;
+    if (inRead(s, e)) continue;
+    const [ss, se] = sentenceBounds(lower, s);
+    TOPIC_WORDS.lastIndex = 0;
+    if (!TOPIC_WORDS.test(lower.slice(ss, se))) continue;
+    const sign = /^\s{0,2}[%\u066A\uFE6A]/.exec(lower.slice(e));
+    if (sign) e += sign[0].length;
+    for (let i = claims.length - 1; i >= 0; i--) {
+      const c = claims[i];
+      if (c.kind === "no_fee" || c.value === null) continue;
+      const span = figureSpans.get(c);
+      if (!span) continue;
+      const joinedAfter = span[0] >= e && span[0] - e <= 5 && JOIN.test(lower.slice(e, span[0]));
+      const joinedBefore = s >= span[1] && s - span[1] <= 5 && JOIN.test(lower.slice(span[1], s));
+      if (joinedAfter || joinedBefore) {
+        s = Math.min(s, span[0]);
+        e = Math.max(e, span[1]);
+        claims.splice(i, 1);
+      }
+    }
+    claims.push({ kind: "unclassified", value: null, ...toOriginal(s, e) });
+    read.push([s, e]);
+  }
+  // (b) any sentence that mentions a rate, or a fee, and holds nothing that
+  //     speaks to it ("no-fee loans", "rates as low as single digits").
+  const spansOf = (kinds: ClaimKind[]) =>
+    claims.filter((c) => kinds.includes(c.kind)).map((c) => [c.start, c.end] as const);
+  const topics: Array<[RegExp, ClaimKind[]]> = [
+    [/\b(?:aprs?|annual percentage rates?|rates?|interest)\b/, ["apr", "unclassified"]],
+    [/\b(?:origination|fees?)\b/, ["fee", "no_fee", "unclassified"]],
+  ];
+  let from = 0;
+  while (from < lower.length) {
+    const [ss, se] = sentenceBounds(lower, from);
+    const sentence = lower.slice(ss, se);
+    for (const [words, kinds] of topics) {
+      const m = words.exec(sentence);
+      if (!m) continue;
+      const covered = spansOf(kinds).some(([a, b]) => a < map[se] && map[ss] < b);
+      // Quote the whole sentence: it is the sentence, not one word, that needs reading.
+      if (!covered) {
+        const lead = sentence.length - sentence.trimStart().length;
+        const held: Claim = { kind: "unclassified", value: null, heldSentence: true, ...toOriginal(ss + lead, se) };
+        if (!claims.some((c) => c.start === held.start && c.end === held.end)) claims.push(held);
+      }
+    }
+    from = Math.max(se + 1, from + 1);
   }
 
   return claims.sort((a, b) => a.start - b.start);
@@ -383,7 +480,9 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
   return {
     claim,
     status: "needs_reviewer",
-    message: `The ad states ${claim.quote} and the automatic check could not tell what it refers to. Please read it.`,
+    message: claim.heldSentence
+      ? `"${claim.quote}" mentions a rate or a fee that the automatic check could not compare with the offer. Please read it.`
+      : `The ad states "${claim.quote}" and the automatic check could not read it as a rate or a fee to compare. Please read it.`,
     offerValue: null,
     suggestion: null,
   };
@@ -398,9 +497,25 @@ export type CopyAnalysis = {
   openFlags: number;
 };
 
+/**
+ * "Matches" is only said of a figure written plainly. If its characters are
+ * unusual (other digit forms, hidden characters inside it), the reading may be
+ * right but the reviewer should see it, so a match becomes "needs the reviewer".
+ * A mismatch stays a mismatch.
+ */
+function holdUnusualForms(check: Check): Check {
+  if (check.status !== "ok" || /^[\x20-\x7E]*$/.test(check.claim.quote)) return check;
+  return {
+    ...check,
+    status: "needs_reviewer",
+    message: `The ad states "${check.claim.quote}" using unusual characters. Read as plain text it matches the offer, but please read it yourself.`,
+    suggestion: null,
+  };
+}
+
 export function analyzeCopy(text: string, terms: OfferTerms): CopyAnalysis {
   const claims = findClaims(text);
-  const checks = claims.map((c) => checkClaim(c, terms));
+  const checks = claims.map((c) => holdUnusualForms(checkClaim(c, terms)));
   const hidden = findHiddenText(text);
   const mismatches = checks.filter((c) => c.status === "mismatch").length;
   const needsReviewer = checks.filter((c) => c.status === "needs_reviewer").length;

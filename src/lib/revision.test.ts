@@ -101,7 +101,8 @@ describe("word differences", () => {
 });
 
 describe("added wording the number check does not cover", () => {
-  const spans = (text: string) => analyzeCopy(text, terms).claims;
+  // Only figures the check actually read count as covered.
+  const spans = (text: string) => analyzeCopy(text, terms).claims.filter((c) => c.kind !== "unclassified");
 
   it("returns the whole reworded sentence", () => {
     const waiver = "Compare ClearPath personal loans. Rates from 8.99% APR. We waive the origination fee for every borrower.";

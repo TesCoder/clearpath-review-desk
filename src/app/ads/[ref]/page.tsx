@@ -183,12 +183,20 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
       ? reviewRevision(previous.body, latest.body, priorRequests, terms)
       : null;
   const diff = previous ? diffWords(previous.body, latest.body) : null;
-  const flaggedNew = revision?.newClaims.filter((c) => c.status !== "ok") ?? [];
+  const flaggedNewAll = revision?.newClaims.filter((c) => c.status !== "ok") ?? [];
   // Added sentences that no code check covers. A reworded claim ("we waive the
   // fee") lands here, in front of the reviewer, not behind a green tick.
   const addedWording = previous
-    ? addedSentences(previous.body, latest.body, analysis?.claims ?? [])
+    ? addedSentences(
+        previous.body,
+        latest.body,
+        (analysis?.claims ?? []).filter((c) => c.kind !== "unclassified"),
+      )
     : [];
+  // A held sentence that is already listed as added wording is shown once, there.
+  const flaggedNew = flaggedNewAll.filter(
+    (c) => !(c.claim.kind === "unclassified" && addedWording.some((t) => t.includes(c.claim.quote))),
+  );
   const aiNew = previous
     ? aiOnly.filter((f) => !previous.body.includes(f.quote))
     : [];

@@ -58,7 +58,14 @@ export function CopyEditor({
         ) : (
           <ul className="mt-2 space-y-2">
             {open.map((c, i) => (
-              <li key={`o${i}`} className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-950">
+              <li
+                key={`o${i}`}
+                className={
+                  c.status === "mismatch"
+                    ? "rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-950"
+                    : "rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950"
+                }
+              >
                 <p>{c.message}</p>
                 {c.suggestion ? (
                   <button
@@ -91,6 +98,7 @@ export function CopyEditor({
         )}
         {open.length ? (
           <p className="mt-2 text-xs text-slate-600">
+            Red items do not match the offer. Amber items are things the check could not read: the reviewer will read them.
             You can fix these now, or submit anyway with a note. The reviewer sees the same flags.
           </p>
         ) : null}

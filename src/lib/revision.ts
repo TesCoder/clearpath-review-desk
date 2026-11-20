@@ -13,7 +13,8 @@ export type RequestOutcome = {
 };
 
 const family = (kind: ClaimKind) => (kind === "no_fee" ? "fee" : kind);
-const signature = (c: Check) => `${c.claim.kind}:${c.claim.value}`;
+// Held items have no value to tell them apart, so they are compared by their words.
+const signature = (c: Check) => (c.claim.kind === "unclassified" ? `held:${c.claim.quote}` : `${c.claim.kind}:${c.claim.value}`);
 
 export function reviewRevision(
   previousBody: string,

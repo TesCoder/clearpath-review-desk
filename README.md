@@ -52,7 +52,7 @@ The rate example rests on Regulation Z's rule that a closed-end credit ad may st
 
 | Job | Done by | Why |
 |---|---|---|
-| Compare a rate or fee with the offer, in digits or written out ("six point nine nine percent") | Code only | Exact and explainable. No model judgment on numbers |
+| Compare a rate or fee with the offer, in digits or written out ("six point nine nine percent") | Code only, for a short list of exact forms. Anything else that looks like a rate or a fee is shown as "Needs your eyes" | Exact and explainable. "Matches" is only said of a figure the code read whole |
 | Find claims in varied wording ("funds as soon as the next business day", "everyone qualifies") | AI (Claude Sonnet 5.5), with every quote confirmed in the ad by code | Wording varies too much for patterns |
 | Notice new wording in a revision | Code difference, plus the AI's findings | The difference shows what changed; the AI says whether it is a claim |
 | Draft a request to the marketer | Code for number mismatches, AI for wording; the reviewer edits it | Saves typing; the reviewer owns the words |
@@ -78,7 +78,7 @@ Affiliate copy is third-party text, and here it is read by a model. I assume an 
 | Reading another visitor's data | The workspace comes from an httpOnly cookie holding a random token (only its hash is stored), never from a form field, a URL or the model. Every query is scoped to it and uses parameters |
 | Oversized input, or running up the bill | Length limits on every field; caps on ads, versions, decisions and moves per workspace; 40 AI calls a day per workspace and 1,500 overall, reserved before the call so parallel requests cannot pass the cap; one call at a time per text; a short model timeout; results stored by text so the same ad is read once. Workspaces expire after 14 days |
 
-**Results.** `npm test` runs 89 unit tests, including eight hostile ads against a fake model that does whatever the ad says: in every case the rate mismatch still shows and the AI review is not presented as complete. A live run against the real model (`npm run eval`, results in `eval/results.json`):
+**Results.** `npm test` runs 100 unit tests, including eight hostile ads against a fake model that does whatever the ad says: in every case the rate mismatch still shows and the AI review is not presented as complete. A live run against the real model (`npm run eval`, results in `eval/results.json`):
 
 - 16 labeled ads: 18 of 18 expected claims found, both clean ads returned no findings, no quotes discarded.
 - 8 hostile ads, 3 runs each: the outcome was protected in 24 of 24 runs, and the model itself still reported the rate in 24 of 24.
@@ -88,6 +88,7 @@ Affiliate copy is third-party text, and here it is read by a model. I assume an 
 - The labeled set is small, synthetic, and written and labeled by me. A perfect score shows the path works. It does not show how the model does on real ads.
 - The demo has no sign-in. Reviewer and Marketer are views a visitor picks, not accounts. The server still enforces the role on every decision, which is where a real sign-in would plug in.
 - The call caps and the size limits are in the code but are not exercised by a test. The per-workspace cap can be sidestepped with a fresh cookie; the overall daily cap is the real limit.
+- The number check reads three exact forms: a percentage in digits, a percentage written out in words, and "no [origination] fee". It does not try to understand other wording. A range written with one percent sign ("5.99-35.99%"), an unusual digit or percent sign, "no-fee", "we waive the fee" or a rate with no figure is shown to the reviewer as unread, never as a match. That costs some extra amber flags on harmless sentences ("No late fees"), which is the trade I chose: a missed problem is worse than a false flag.
 - The flag for text addressed to an AI is a short list of patterns. It will miss other languages and paraphrases. Nothing else depends on it.
 
 **Does not apply here:** tool poisoning, memory persistence, connector drift, code execution and SQL written by a model. The model has no tools, memory, connectors or code execution.
