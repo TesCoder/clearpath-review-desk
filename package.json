@@ -10,7 +10,8 @@
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
     "test": "vitest run",
     "eval": "APP_LLM=api LIVE_AI=1 node --env-file-if-exists=.env.local node_modules/vitest/vitest.mjs run src/lib/ai/live.eval.test.ts",
-    "eval:cli": "APP_LLM=claude-cli EVAL_SAMPLE=3 LIVE_AI=1 node --env-file-if-exists=.env.local node_modules/vitest/vitest.mjs run src/lib/ai/live.eval.test.ts --silent=false"
+    "eval:cli": "APP_LLM=claude-cli EVAL_SAMPLE=3 LIVE_AI=1 node --env-file-if-exists=.env.local node_modules/vitest/vitest.mjs run src/lib/ai/live.eval.test.ts --silent=false",
+    "e2e": "node e2e/reviewer.js && node e2e/loop.js && node e2e/handoffs.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.12.0",
@@ -28,6 +29,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
+    "playwright": "^1.65.1",
     "tailwindcss": "4.3.3",
     "typescript": "^5",
     "vitest": "^4.1.12"

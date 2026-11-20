@@ -56,7 +56,7 @@ function Rows({
               <span className="mt-1 block text-sm text-slate-600">
                 Version {a.latest.number} · publishing{" "}
                 {formatDate(a.plannedDate)} ·{" "}
-                {waitingLabel ? "waiting since" : "last activity"}{" "}
+                {waitingLabel ? "waiting, last change" : "last activity"}{" "}
                 {timeAgo(a.lastActivityAt)}
               </span>
             </Link>

@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Headless click-through scripts, plain Node.
+    "e2e/**",
   ]),
 ]);
 
