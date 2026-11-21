@@ -87,18 +87,32 @@ export default async function OfferSheet(props: PageProps<"/offers">) {
   const addedId = typeof added === "string" && /^[a-z0-9-]{1,60}$/.test(added) ? added : null;
   const saved = addedId ? revisions.find((r) => r.revisionId === addedId && r.addedHere) : null;
   let affected: AssetView[] = [];
+  let savedAt = 0;
   if (saved) {
     const rows = await db()`
-      select data from events
+      select data, created_at from events
       where workspace_id = ${workspaceId} and type = 'offer_revised' and data->>'revisionId' = ${saved.revisionId}
       order by id desc limit 1
     `;
     const refs: string[] = Array.isArray(rows[0]?.data?.affected) ? rows[0].data.affected : [];
     affected = assets.filter((a) => refs.includes(a.ref)).sort((a, b) => a.plannedDate.localeCompare(b.plannedDate));
+    savedAt = rows[0] ? new Date(rows[0].created_at).getTime() : 0;
   }
-  // The list is what the save recorded. How many still wait is counted now,
-  // so a reloaded receipt does not go on saying all of them need review.
-  const stillOpen = affected.filter((a) => a.status === "offer_changed").length;
+  // The list is what the save recorded. Where each ad stands is worked out
+  // now, so a reloaded receipt does not go on saying all of them need review.
+  // "Reviewed" means a reviewer's decision was recorded after this save. A
+  // marketer's edit or a move is not a review: the ad is still waiting.
+  const since = (a: AssetView): "waiting" | "reviewed" | "covered" | "changed" =>
+    a.status === "offer_changed"
+      ? "waiting"
+      : a.decisions.some((d) => new Date(d.createdAt).getTime() > savedAt)
+        ? "reviewed"
+        : a.status === "approved"
+          ? "covered"
+          : "changed";
+  const untouched = affected.filter((a) => since(a) === "waiting").length;
+  const stillOpen = affected.filter((a) => since(a) === "waiting" || since(a) === "changed").length;
+  const allReviewed = affected.every((a) => since(a) === "reviewed");
 
   return (
     <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6">
@@ -121,9 +135,9 @@ export default async function OfferSheet(props: PageProps<"/offers">) {
           {affected.length ? (
             <>
               <p className="mt-2">
-                {stillOpen === affected.length
+                {untouched === affected.length
                   ? `${affected.length} approved ad${affected.length === 1 ? "" : "s"} now need${affected.length === 1 ? "s" : ""} review because the offer changed:`
-                  : `This change sent ${affected.length} approved ad${affected.length === 1 ? "" : "s"} back to review. ${stillOpen === 0 ? "All have been reviewed since" : `${stillOpen} still need${stillOpen === 1 ? "s" : ""} review`}:`}
+                  : `This change sent ${affected.length} approved ad${affected.length === 1 ? "" : "s"} back to review. ${allReviewed ? "All have been reviewed since" : stillOpen === 0 ? "None is waiting for a decision now" : `${stillOpen} still need${stillOpen === 1 ? "s" : ""} a decision`}:`}
               </p>
               <ul className="mt-1 space-y-1">
                 {affected.map((a) => (
@@ -132,9 +146,13 @@ export default async function OfferSheet(props: PageProps<"/offers">) {
                       {a.ref}
                     </Link>
                     , {a.affiliate.name}, {a.placement.toLowerCase()}, {formatDate(a.plannedDate)}:{" "}
-                    {a.status !== "offer_changed"
+                    {since(a) === "reviewed"
                       ? "reviewed since"
-                      : a.analysis && a.analysis.mismatches > 0
+                      : since(a) === "covered"
+                        ? "an earlier approval covers it again, with no new review"
+                        : since(a) === "changed"
+                          ? "edited or moved since, still waiting for a decision"
+                          : a.analysis && a.analysis.mismatches > 0
                         ? `${a.analysis.mismatches} claim${a.analysis.mismatches === 1 ? "" : "s"} no longer match${a.analysis.mismatches === 1 ? "es" : ""} the new terms`
                         : "no mismatch against the new terms, needs approval again"}
                   </li>

@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { loadAssets, loadRevisions } from "./data";
 import { db } from "./db";
 import { logEvent } from "./events";
-import { MAX_ADDED_REVISIONS, SUPPORTED_PRODUCT, refuseRevision, termsOn, type NewRevisionInput } from "./offers";
+import { MAX_ADDED_REVISIONS, SUPPORTED_PRODUCT, approvedKey, refuseRevision, termsOn, type NewRevisionInput } from "./offers";
 
 export type AddRevisionResult =
   | { ok: true; revisionId: string; revision: number; affected: string[] }
@@ -26,6 +26,8 @@ export async function addRevision(
   input: NewRevisionInput,
   /** The highest revision number on the sheet the form's preview was worked out from. */
   seenLatest?: number,
+  /** The approved ads for this offer that the form's preview listed from (approvedKey). */
+  seenApproved?: string,
 ): Promise<AddRevisionResult> {
   const revisionId = `${offerId}-w${randomBytes(6).toString("hex")}`;
   return (await db().begin(async (tx) => {
@@ -67,6 +69,17 @@ export async function addRevision(
     if (refusal) return { ok: false, error: refusal };
 
     const before = await loadAssets(workspaceId, tx);
+    // The preview listed the approved ads this change would send back. If an
+    // ad was approved, moved or sent back since, that list is out of date, and
+    // saving would send back an ad the reviewer was never shown.
+    const approvedNow = approvedKey(before.filter((a) => a.offer.id === offerId && a.status === "approved"));
+    if (seenApproved !== undefined && seenApproved !== approvedNow) {
+      return {
+        ok: false,
+        error:
+          "An approval for this offer changed after you opened this form, so the list of ads this change would send back to review is out of date. Reload the page and check the preview again before saving.",
+      };
+    }
     const revision = latest + 1;
     // The form changes the rates and the fee. The loan term range is carried
     // over from the revision this one replaces.

@@ -413,7 +413,7 @@ describe("a figure is read only as a whole number", () => {
 
 describe("a fee is a match, and an edit is offered, only when the sentence says nothing more", () => {
   it("the plain statements still match", () => {
-    for (const t of ["A 2% origination fee applies.", "A 2% origination fee may apply.", "Origination fee of 2%.", "Rates from 8.99% APR with a 2% origination fee."]) {
+    for (const t of ["A 2% origination fee applies.", "A 2% origination fee may apply.", "Origination fee of 2%.", "The origination fee is 2%.", "Just a 2% origination fee.", "With an origination fee of 2%."]) {
       expect(checks(t).find((c) => c.claim.kind === "fee")?.status, t).toBe("ok");
     }
   });
@@ -466,5 +466,60 @@ describe("hidden characters are recognized by kind, not only from a list", () =>
   it("line breaks, tabs and ordinary spaces are not hidden text", () => {
     expect(findHiddenText("Rates from 8.99% APR.\nA 2% origination fee applies.\r\n\tApply today.")).toEqual([]);
     expect(findHiddenText("Rates from 8.99%\u00A0APR.")).toEqual([]);
+  });
+});
+
+describe("a match needs wording that states it, not only the right figure (round 7)", () => {
+  const status = (t: string, quote: string) => checks(t).find((c) => c.claim.quote.startsWith(quote))?.status;
+
+  it("a fee is held when anything else is in its sentence, and no edit is offered", () => {
+    for (const t of [
+      "Only returning borrowers pay a 2% origination fee.",
+      "If you are a returning borrower, a 2% origination fee applies.",
+      "Rates from 8.99% APR with a 2% origination fee.",
+    ]) {
+      expect(status(t, "2%"), t).toBe("needs_reviewer");
+    }
+    const wrong = checks("Only returning borrowers pay a 1% origination fee.")[0];
+    expect(wrong).toMatchObject({ status: "mismatch", suggestion: null });
+  });
+
+  it("the offer's lowest or highest rate is held unless the ad states it as that end", () => {
+    for (const [t, quote] of [
+      ["Our APR never exceeds 8.99%.", "8.99%"],
+      ["APR is at least 35.99%.", "35.99%"],
+      ["8.99% APR.", "8.99%"],
+      ["35.99% APR.", "35.99%"],
+      ["APR is never as low as 8.99%.", "8.99%"],
+      ["Rates are not from 8.99% APR.", "8.99%"],
+      ["APR between 8.99% and 35.99%.", "35.99%"],
+    ]) {
+      expect(status(t, quote), t).toBe("needs_reviewer");
+    }
+    expect(checks("Our APR never exceeds 8.99%.")[0].message).toMatch(/could not read the ad's wording as stating it as the lowest rate/);
+  });
+
+  it("stated as the lowest, as the highest, or as the two ends of a range, it still matches", () => {
+    for (const [t, quote] of [
+      ["Rates from 8.99% APR.", "8.99%"],
+      ["Rates as low as 8.99% APR.", "8.99%"],
+      ["ClearPath personal loans start at 8.99% APR.", "8.99%"],
+      ["The lowest APR is 8.99%.", "8.99%"],
+      ["Rates up to 35.99% APR.", "35.99%"],
+      ["The maximum APR is 35.99%.", "35.99%"],
+      ["APR from 8.99% to 35.99%.", "8.99%"],
+      ["APR from 8.99% to 35.99%.", "35.99%"],
+      ["8.99% - 35.99% APR", "8.99%"],
+      ["8.99% - 35.99% APR", "35.99%"],
+    ]) {
+      expect(status(t, quote), t).toBe("ok");
+    }
+  });
+
+  it("a suggested edit never carries a hidden character or half a number into the ad", () => {
+    const c = checks("Rates from 6.\u200B99% APR.").find((x) => x.status === "mismatch");
+    expect(c?.suggestion).toBe("8.99% APR");
+    expect(checks("Rates from 6.99% APR.")[0].suggestion).toBe("8.99% APR");
+    expect(checks("Just a 1% origination fee.")[0].suggestion).toBe("2%");
   });
 });

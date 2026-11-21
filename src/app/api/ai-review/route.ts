@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { runReview } from "@/lib/ai/store";
 import { loadAsset } from "@/lib/data";
-import { isSameOrigin } from "@/lib/request";
+import { isSameOrigin, readJsonObject } from "@/lib/request";
 import { getWorkspaceId } from "@/lib/workspace";
 
 // Starts the AI claim finder for an ad's latest version. A plain route, not a
@@ -11,13 +11,10 @@ export async function POST(request: Request) {
   if (!isSameOrigin(request)) {
     return NextResponse.json({ status: "unavailable", reason: "Cross-site requests are not accepted." }, { status: 403 });
   }
-  let ref = "";
-  try {
-    const body = (await request.json()) as { ref?: unknown };
-    ref = typeof body.ref === "string" ? body.ref.slice(0, 20) : "";
-  } catch {
-    return NextResponse.json({ status: "unavailable", reason: "Bad request." }, { status: 400 });
-  }
+  // The body is one short reference. Anything larger is refused before it is read in full.
+  const body = await readJsonObject(request, 1000);
+  if (!body) return NextResponse.json({ status: "unavailable", reason: "Bad request." }, { status: 400 });
+  const ref = typeof body.ref === "string" ? body.ref.slice(0, 20) : "";
   let workspaceId: string;
   try {
     workspaceId = await getWorkspaceId();

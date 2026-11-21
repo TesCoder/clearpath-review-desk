@@ -1,6 +1,7 @@
-// Four named attacks on the AI read and the number check, each with the result
-// the app gives. The model here is a fake that does what the attacker wants,
-// so these show what code guarantees whatever the model does.
+// Named attacks on the AI read and the number check (the groups are numbered
+// below; the README lists them), each with the result the app gives. The
+// model here is a fake that does what the attacker wants, so these show what
+// code guarantees whatever the model does.
 import { describe, expect, it } from "vitest";
 import { analyzeCopy, normalizeWithMap, type OfferTerms } from "../checks";
 import { findInstructionText, instructionTextAsSubmitted } from "../injection";

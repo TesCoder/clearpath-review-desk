@@ -56,6 +56,7 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
   await page.click('button:has-text("Add revision 3")');
   await page.waitForSelector('[data-banner=revision-saved]');
   const saved = await page.innerText('[data-banner=revision-saved]');
+  const receiptUrl = page.url();
   console.log('saved:', saved.replace(/\s+/g, ' '));
   ok('the confirmation says how many approved ads now need review', /2 approved ads now need review because the offer changed/.test(saved));
   ok('each affected ad is listed with what the re-check found',
@@ -127,6 +128,24 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
   const marketer = await page.innerText('main');
   ok('the marketer is told the approval no longer covers the ad', /Do not publish it until it is approved again/.test(marketer));
   ok('the marketer gets the one-click fix for the new floor', (await page.$$('button:has-text("Change to: 9.49% APR")')).length === 1);
+
+  // 7b. The receipt, reloaded: "reviewed" means a reviewer decided. A marketer's edit is not a review.
+  const receipt = async () => { await page.goto(receiptUrl); return (await page.innerText('[data-banner=revision-saved]')).replace(/\s+/g, ' '); };
+  const afterReview = await receipt();
+  console.log('receipt after one review:', afterReview);
+  ok('the receipt counts the reviewed ad and the one still waiting',
+    /This change sent 2 approved ads back to review\. 1 still needs a decision/.test(afterReview) &&
+    /AD-1041[^:]*: reviewed since/.test(afterReview) && /AD-1038[^:]*: 1 claim no longer matches the new terms/.test(afterReview));
+  await page.goto(BASE + '/ads/AD-1038');
+  await page.waitForSelector('text=Change the text for the new terms');
+  await page.click('button:has-text("Change to: 9.49% APR")');
+  await page.click('button:has-text("for review")');
+  await page.waitForSelector('text=Sent for review as version');
+  const afterEdit = await receipt();
+  console.log('receipt after a marketer edit:', afterEdit);
+  ok('a marketer edit is not called a review: the ad still needs a decision',
+    /1 still needs a decision/.test(afterEdit) && !/All have been reviewed since/.test(afterEdit) &&
+    /AD-1038[^:]*: edited or moved since, still waiting for a decision/.test(afterEdit));
 
   // 8. The server refuses a change to the offer sheet from the Marketer view, even from a form loaded as the reviewer.
   await page.click('header button[value=reviewer]');

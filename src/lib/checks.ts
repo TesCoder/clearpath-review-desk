@@ -3,10 +3,10 @@
 // What this file decides: whether a claim in ad copy "matches" the offer,
 // "does not match", or "needs the reviewer".
 //
-// It has been corrected six times, each time after a test or a review found
+// It has been corrected seven times, each time after a test or a review found
 // a misread. After the second, the approach changed: instead of teaching the
 // code more wording, it reads a short list of exact forms and holds
-// everything else open for a person. Rounds 3 to 6 each made it say less.
+// everything else open for a person. Rounds 3 to 7 each made it say less.
 //   1. A manual test of the submit form: a rate written in words was read as
 //      nothing to compare. Added percentages written out in words.
 //   2. An independent review: ranges, unusual digits and percent signs, and
@@ -30,6 +30,16 @@
 //      other rate inside the range is held. A figure is read only as a whole
 //      number. A fee is a match, and an edit is offered, only when the
 //      sentence says nothing more about it.
+//   7. A review found three more green results: "Only returning borrowers
+//      pay a 2% origination fee", "Our APR never exceeds 8.99%" and "APR is
+//      at least 35.99%". Each passed because the code looked for wording
+//      that rules a match OUT, and that list can never be complete. Now a
+//      match needs wording that rules it IN: a rate is a match only when the
+//      ad states it as its lowest rate ("from 8.99% APR"), as its highest
+//      ("up to 35.99% APR"), or as the two ends of a range ("8.99% to
+//      35.99%"), with no "no", "not" or "never" before it; and a fee is a
+//      match only when its whole sentence is one of a few plain forms. This
+//      round uses the lists the file already had and adds none.
 //
 // The only forms this file reads as a figure (the approved forms):
 //   1. digits, an optional decimal part, at most one space, then "%",
@@ -91,6 +101,10 @@ export type Claim = {
   statesMinimum?: true;
   /** A word just before the figure says which end of the range it is. */
   endpoint?: "maximum" | "minimum";
+  /** The figure is one end of a range written as two rates joined by "to" or a dash ("8.99% to 35.99%"). */
+  rangeEnd?: "low" | "high";
+  /** "No", "not", "never" or "without" comes before the figure in its sentence ("APR is never as low as 8.99%"). */
+  negated?: true;
 };
 
 export type CheckStatus = "ok" | "mismatch" | "needs_reviewer";
@@ -319,18 +333,29 @@ function namesOriginationFee(lower: string, s: number, e: number): boolean {
 /** A sentence or phrase without its outer spaces and closing punctuation. */
 const bare = (t: string) => t.trim().replace(/[.!?,;:]+$/, "").trim();
 
+/** Words that turn a statement around. One list, used for fees and for rates. */
+const NEGATION = /\b(?:no|not|never|without|waive[sd]?|waiving)\b/;
+
+/** The only words a sentence may put before a plain statement of the fee. */
+const FEE_LEADS = ["", "a", "an", "the", "just a", "only a", "there is a", "there is an", "with a", "with an"];
+
 /**
- * True when a sentence states the origination fee and nothing else about it.
+ * True when a whole sentence states the origination fee and nothing else.
  * After the fee phrase there may be nothing, or one of three plain endings.
- * Before the figure there may be no word that negates it. Anything else
- * ("... applies for late payments", "... is waived for new customers", "no
- * 2% origination fee") is not read as a statement of the fee.
+ * Before it there may be nothing, or one of the few lead-ins listed above.
+ * Anything else ("... applies for late payments", "... is waived for new
+ * customers", "no 2% origination fee", "Only returning borrowers pay a 2%
+ * origination fee") is not read as a plain statement of the fee: the rest of
+ * the sentence can change who pays it or when.
  */
 function saysOnlyTheFee(sentence: string, s: number, e: number): boolean {
   const after = /^\s+origination\s+fees?\b/.exec(sentence.slice(e));
   const tail = bare(sentence.slice(after ? e + after[0].length : e));
   if (!["", "applies", "may apply", "is charged"].includes(tail)) return false;
-  return !/\b(?:no|not|never|without|waive[sd]?|waiving)\b/.test(sentence.slice(0, s));
+  const before = sentence.slice(0, s).trim();
+  // "origination fee of <figure>": the lead-in is what comes before those words.
+  const named = /(?:^|\s)origination\s+fees?(?:\s+(?:of|is|at))?$/.exec(before);
+  return FEE_LEADS.includes((named ? before.slice(0, named.index) : before).trim());
 }
 
 export function findClaims(text: string): Claim[] {
@@ -413,10 +438,26 @@ export function findClaims(text: string): Claim[] {
       // The same label written after the figure: "12.99% APR maximum".
       const label = /^\s*(maximum|max|minimum|min)\b/.exec(lower.slice(e));
       if (label && !claim.endpoint) claim.endpoint = label[1].startsWith("max") ? "maximum" : "minimum";
+      if (NEGATION.test(lower.slice(ss, n.s))) claim.negated = true;
     }
     claims.push(claim);
     figureSpans.set(claim, [n.s, e]);
     read.push([s, e]);
+  }
+
+  // Two rates joined by "to" or a dash are the two ends of one range
+  // ("8.99% to 35.99% APR"). This is the only way the second figure is read
+  // as the highest rate without a word such as "up to" before it.
+  const rates = claims
+    .filter((c) => c.kind === "apr" && figureSpans.has(c))
+    .sort((a, b) => figureSpans.get(a)![0] - figureSpans.get(b)![0]);
+  for (let i = 0; i + 1 < rates.length; i++) {
+    const end = figureSpans.get(rates[i])![1];
+    const next = figureSpans.get(rates[i + 1])![0];
+    if (next - end <= 5 && /^\s*(?:-|\u2013|\u2014|to)\s*$/.test(lower.slice(end, next))) {
+      rates[i].rangeEnd = "low";
+      rates[i + 1].rangeEnd = "high";
+    }
   }
 
   // Held for the reviewer, never matched and never dropped:
@@ -481,9 +522,14 @@ export function findClaims(text: string): Claim[] {
   return claims.sort((a, b) => a.start - b.start);
 }
 
-/** The claim's own words with the number replaced, or a plain figure when the number was written in words. */
+/**
+ * The claim's own words with the number replaced. When the quote is not a
+ * plain figure in digits (it was written in words, or has hidden characters
+ * inside the number), a plain figure is given instead of a patched quote.
+ */
 function withNumber(claim: Claim, value: string): string {
-  if (/\d/.test(claim.quote)) return claim.quote.replace(/\d{1,3}(?:[.,]\d{1,3})?/, value);
+  const plain = /^(\D*)\d{1,3}(?:[.,]\d{1,3})?(\s?(?:%|percent\b|per cent\b).*)$/i.exec(claim.quote);
+  if (plain) return `${plain[1]}${value}${plain[2]}`;
   return /apr\s*$/i.test(claim.quote) ? `${value}% APR` : `${value}%`;
 }
 
@@ -543,14 +589,27 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         suggestion: null,
       };
     }
-    // A match means the figure equals one end of the offer's range. Being
-    // somewhere inside the range proves nothing about the claim: "from 8.99%
-    // to 15.99% APR" is false when the highest APR is 35.99%.
-    if (claim.value === terms.aprMin && claim.endpoint !== "maximum") {
+    // A match means two things. The figure equals one end of the offer's
+    // range: being somewhere inside it proves nothing ("from 8.99% to 15.99%
+    // APR" is false when the highest APR is 35.99%). And the ad's own words
+    // state it as that end: "Our APR never exceeds 8.99%" names the offer's
+    // lowest rate and says the opposite of the offer.
+    const asLowest = (saysLowest || claim.rangeEnd === "low") && claim.endpoint !== "maximum";
+    const asHighest = (claim.endpoint === "maximum" || claim.rangeEnd === "high") && !saysLowest;
+    if (claim.value === terms.aprMin && asLowest && !claim.negated) {
       return { claim, status: "ok", message: `${percent(claim.value)} APR is the lowest APR on the offer (${range}).`, suggestion: null };
     }
-    if (claim.value === terms.aprMax && !saysLowest) {
+    if (claim.value === terms.aprMax && asHighest && !claim.negated) {
       return { claim, status: "ok", message: `${percent(claim.value)} APR is the highest APR on the offer (${range}).`, suggestion: null };
+    }
+    if (claim.value === terms.aprMin || claim.value === terms.aprMax) {
+      const which = claim.value === terms.aprMin ? "lowest" : "highest";
+      return {
+        claim,
+        status: "needs_reviewer",
+        message: `The ad says ${percent(claim.value)} APR. That is the ${which} APR on the offer (${range}), but the check could not read the ad's wording as stating it as the ${which} rate. Please read the claim.`,
+        suggestion: null,
+      };
     }
     return {
       claim,
@@ -581,7 +640,7 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
       return {
         claim,
         status: "needs_reviewer",
-        message: `The ad states a ${percent(claim.value)} origination fee, which is the figure on the offer, but its sentence says more about the fee than that. Please read it.`,
+        message: `The ad states a ${percent(claim.value)} origination fee, which is the figure on the offer, but its sentence says more than that. Please read it.`,
         suggestion: null,
       };
     }

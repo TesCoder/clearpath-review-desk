@@ -182,6 +182,17 @@ alter table versions add column if not exists wording_placement text;
 -- Kept on the decision so History can show it beside the approval.
 alter table decisions add column if not exists open_mismatches int not null default 0;
 
+-- Approvals recorded before that column existed were given 0. Each approval
+-- also wrote an event, in the same transaction, with the count of mismatches
+-- on screen. Where that count was above zero, copy it, so History shows an
+-- older "Approve anyway" too. Safe to run again: it only fills in zeros.
+update decisions d
+set open_mismatches = (e.data->>'mismatches')::int
+from events e
+where d.kind = 'approve' and d.open_mismatches = 0
+  and e.type = 'approved' and e.version_id = d.version_id and e.created_at = d.created_at
+  and (case when jsonb_typeof(e.data->'mismatches') = 'number' then (e.data->>'mismatches')::numeric else 0 end) between 1 and 1000;
+
 -- A stored AI result, and a decision, go with the offer revision they were
 -- made against. Only a revision added in one visitor's demo is ever deleted
 -- (Reset demo, or the workspace expiring), and that visitor's ads are deleted

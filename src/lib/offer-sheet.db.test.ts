@@ -5,6 +5,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { approvedKey } from "./offers";
 
 function localDatabaseUrl(): string | null {
   let url = process.env.DATABASE_URL ?? null;
@@ -188,6 +189,45 @@ describe.skipIf(!url)("an added offer revision belongs to one demo workspace (lo
     // The offer changes for its date: the AI never read it against the new terms.
     expect(await m.sheet.addRevision(a, "pl-winter", { ...raise, effectiveFrom: "2026-12-09" })).toMatchObject({ ok: true });
     expect((await m.data.loadAsset(a, "AD-1042"))?.latest.wording).toBeNull();
+    await sql.begin((tx) => m.seed.resetWorkspaceData(tx, a));
+  });
+
+  it("a form whose preview listed the approved ads before one of them changed is refused", async () => {
+    const approved = (await m.data.loadAssets(a)).filter((x) => x.offer.id === "pl-winter" && x.status === "approved");
+    expect(approved.map((x) => x.ref)).toContain("AD-1038");
+    // The preview was worked out before AD-1038 was approved, so it never listed it.
+    const stale = approvedKey(approved.filter((x) => x.ref !== "AD-1038"));
+    expect(await m.sheet.addRevision(a, "pl-winter", raise, undefined, stale)).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/approval for this offer changed after you opened this form/),
+    });
+    expect((await m.data.loadRevisions(a)).some((r) => r.addedHere)).toBe(false);
+    expect(await status(a, "AD-1038")).toBe("approved");
+    expect(await m.sheet.addRevision(a, "pl-winter", raise, undefined, approvedKey(approved))).toMatchObject({ ok: true });
+    await m.db().begin((tx) => m.seed.resetWorkspaceData(tx, a));
+  });
+
+  it("an approval recorded before the mismatch count was kept gets the count back from its own event", async () => {
+    const sql = m.db();
+    const ad = (await m.data.loadAsset(a, "AD-1042"))!;
+    const at = new Date("2026-11-02T10:00:00Z");
+    const [old] = await sql`
+      insert into decisions (version_id, kind, fingerprint, offer_revision_id, planned_date, placement, reviewer, created_at)
+      values (${ad.latest.id}, 'approve', ${ad.latest.fingerprint}, ${ad.terms!.revisionId}, ${ad.plannedDate}, ${ad.placement}, 'Test', ${at})
+      returning id, open_mismatches
+    `;
+    expect(old.open_mismatches).toBe(0); // what the column's default gave every older row
+    await sql`
+      insert into events (workspace_id, asset_id, version_id, type, actor_role, data, created_at)
+      values (${a}, ${ad.id}, ${ad.latest.id}, 'approved', 'reviewer', ${sql.json({ version: 1, mismatches: 1, approvedWithOpenMismatch: true })}, ${at})
+    `;
+    const backfill = /update decisions d\s[\s\S]*?;/.exec(readFileSync("db/schema.sql", "utf8"))![0];
+    await sql.unsafe(backfill);
+    await sql.unsafe(backfill); // the setup script runs on every deploy
+    const [row] = await sql`select open_mismatches from decisions where id = ${old.id}`;
+    expect(row.open_mismatches).toBe(1);
+    const shown = (await m.data.loadAsset(a, "AD-1042"))!.decisions.find((d) => d.id === old.id);
+    expect(shown?.openMismatches).toBe(1);
     await sql.begin((tx) => m.seed.resetWorkspaceData(tx, a));
   });
 

@@ -3,7 +3,7 @@
 //
 // What this file decides: what the screen says about an earlier request.
 //
-// It has been corrected four times. The first three each narrowed when the
+// It has been corrected five times. The first three each narrowed when the
 // word "Resolved" was shown wrongly (a reworded claim; a two-part request; an
 // unchanged figure elsewhere in the ad). The fourth found two more (a
 // different in-range figure than the one requested; the letters "APR" deleted
@@ -11,6 +11,8 @@
 // longer says "Resolved". It reports what the comparison found, in the exact
 // forms listed in RequestOutcome below, and asks the reviewer to confirm
 // everything else. Bringing a verdict back would be a product decision.
+// The fifth narrowed "Flagged claim removed": a rate written in words whose
+// "percent APR" was deleted left the number in the ad and was called removed.
 
 import { analyzeCopy, draftRequest, normalizeWithMap, type Check, type ClaimKind, type OfferTerms } from "./checks";
 import { diffWords, hasAdditions } from "./diff";
@@ -95,9 +97,17 @@ export function reviewRevision(
       // is gone from the ad in every form, and the version brought in nothing
       // the number check had to hold for the reviewer.
       const flaggedValue = flagged.claim.value;
+      // A figure written out in words ("six point nine nine percent APR") is
+      // still in the ad while its number words are, even after "percent APR"
+      // is deleted and the number check no longer reads it as a rate.
+      const numberWords = /\d/.test(flagged.claim.quote)
+        ? ""
+        : normalizeWithMap(flagged.claim.quote).norm.replace(/\s*(?:percent|per cent)(?:\s+apr)?\s*$/, "").trim();
       const figureGone =
         flaggedValue === null ||
-        (!numbersIn(currentBody).includes(flaggedValue) && !after.claims.some((c) => c.value === flaggedValue));
+        (!numbersIn(currentBody).includes(flaggedValue) &&
+          !after.claims.some((c) => c.value === flaggedValue) &&
+          !(numberWords !== "" && normalizeWithMap(currentBody).norm.includes(numberWords)));
       const broughtInHeld = after.checks.some((c) => c.claim.kind === "unclassified" && !seenBefore.has(signature(c)));
       const fresh =
         figureGone && !broughtInHeld ? sameFamily.filter((c) => c.status === "ok" && !seenBefore.has(signature(c))) : [];

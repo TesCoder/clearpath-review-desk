@@ -172,3 +172,16 @@ export function termChanges(before: OfferTerms, after: OfferTerms): Array<{ labe
   const now = termRows(after);
   return termRows(before).map((row, i) => ({ label: row.label, before: row.value, after: now[i].value, changed: row.value !== now[i].value }));
 }
+
+/**
+ * The approved ads an offer-change preview was worked out from, as one string.
+ * The form posts it and the server works it out again under lock: if an ad
+ * was approved, moved or sent back in between, the preview's list of affected
+ * ads no longer holds and the save is refused.
+ */
+export function approvedKey(ads: Array<{ ref: string; plannedDate: string }>): string {
+  return ads
+    .map((a) => `${a.ref}@${a.plannedDate}`)
+    .sort()
+    .join(",");
+}

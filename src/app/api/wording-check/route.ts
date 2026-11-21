@@ -7,7 +7,7 @@ import { loadRevisions } from "@/lib/data";
 import { db } from "@/lib/db";
 import { fingerprint } from "@/lib/fingerprint";
 import { SUPPORTED_PRODUCT, isIsoDate, isPlacement, termsOn } from "@/lib/offers";
-import { isSameOrigin } from "@/lib/request";
+import { isSameOrigin, readJsonObject } from "@/lib/request";
 import { getRole, getWorkspaceId } from "@/lib/workspace";
 
 const MAX_RECORDS_PER_WORKSPACE = 200;
@@ -24,17 +24,10 @@ const unavailable = (reason: string, status: number) =>
 export async function POST(request: Request) {
   if (!isSameOrigin(request)) return unavailable("Cross-site requests are not accepted.", 403);
 
-  let input: { body?: unknown; offerId?: unknown; plannedDate?: unknown; placement?: unknown };
-  if (Number(request.headers.get("content-length") ?? 0) > MAX_COPY_CHARS * 8) return unavailable("Bad request.", 400);
-  try {
-    const raw = await request.text();
-    if (raw.length > MAX_COPY_CHARS * 8) return unavailable("Bad request.", 400);
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return unavailable("Bad request.", 400);
-    input = parsed as typeof input;
-  } catch {
-    return unavailable("Bad request.", 400);
-  }
+  // The byte limit is enforced while the body is read, not after.
+  const input: { body?: unknown; offerId?: unknown; plannedDate?: unknown; placement?: unknown } | null =
+    await readJsonObject(request, MAX_COPY_CHARS * 8);
+  if (!input) return unavailable("Bad request.", 400);
   const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
   const body = cleanBody(typeof input.body === "string" ? input.body : "");
   const offerId = str(input.offerId, 40);
@@ -66,9 +59,12 @@ export async function POST(request: Request) {
   const result = wordingResult(review, analyzeCopy(body, terms).checks);
 
   // Only a real answer is recorded. One record per text, and a ceiling per
-  // workspace, so this cannot be used to fill the event log.
+  // workspace, so this cannot be used to fill the event log. When the ceiling
+  // stops a record from being written, the marketer is told: otherwise they
+  // would see an answer the reviewer never learns about.
+  let recorded = true;
   if (review.answered && result.state !== "unavailable") {
-    await sql`
+    const inserted = await sql`
       insert into events (workspace_id, type, actor_role, data)
       select ${workspaceId}, 'wording_checked', 'marketer',
              ${sql.json({ fingerprint: fp, offerRevisionId: terms.revisionId, placement, state: result.state, notes: result.notes.length })}
@@ -78,7 +74,17 @@ export async function POST(request: Request) {
           where workspace_id = ${workspaceId} and type = 'wording_checked'
             and data->>'fingerprint' = ${fp} and data->>'offerRevisionId' = ${terms.revisionId} and data->>'placement' = ${placement}
         )
+      returning id
     `;
+    if (inserted.length === 0) {
+      const [existing] = await sql`
+        select 1 from events
+        where workspace_id = ${workspaceId} and type = 'wording_checked'
+          and data->>'fingerprint' = ${fp} and data->>'offerRevisionId' = ${terms.revisionId} and data->>'placement' = ${placement}
+        limit 1
+      `;
+      recorded = Boolean(existing);
+    }
   }
-  return NextResponse.json({ ...result, checked: body });
+  return NextResponse.json({ ...result, checked: body, recorded });
 }

@@ -152,9 +152,17 @@ describe("a model steered into covering claims without reporting them", () => {
     expect(r.missedByModel.length).toBe(2);
   });
 
-  it("a finding that quotes one sentence reports the claims in that sentence", async () => {
+  it("one rate finding on a sentence with a rate and a fee reports the rate, not the fee", async () => {
     const copy = "Great loans. Rates from 6.99% APR with no fees.";
     const r = await reviewWithModel(copy, terms, PLACEMENT, fake({ findings: [finding("Rates from 6.99% APR with no fees.")], copy_addresses_reviewer: false }));
+    expect(r.status).toBe("incomplete");
+    expect(r.missedByModel).toEqual(["no fees"]);
+  });
+
+  it("a rate finding and a fee finding on the same sentence report both", async () => {
+    const copy = "Great loans. Rates from 6.99% APR with no fees.";
+    const findings = [finding("6.99% APR"), finding("no fees", { kind: "fee" })];
+    const r = await reviewWithModel(copy, terms, PLACEMENT, fake({ findings, copy_addresses_reviewer: false }));
     expect(r.status).toBe("complete");
     expect(r.missedByModel).toEqual([]);
   });

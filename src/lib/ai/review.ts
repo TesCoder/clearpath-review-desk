@@ -7,7 +7,7 @@
 //   3. Code verifies every quote the model cites, word for word.
 //   4. Any failure or gap makes the review "incomplete". It is never "clean".
 
-import { findClaims, findHiddenText, type OfferTerms } from "../checks";
+import { findClaims, findHiddenText, type ClaimKind, type OfferTerms } from "../checks";
 import { findInstructionText } from "../injection";
 import { FINDING_KINDS, ModelError, type AiFinding, type AiReview, type ClaimModel, type ModelRequest } from "./types";
 
@@ -157,12 +157,16 @@ const spansSentences = (quote: string) => /[.!?]\s+\S|\n\s*\S/.test(quote.trim()
  * steered model could "cover" every claim with one long quote and be marked
  * complete while saying nothing about any of them.
  *
- * Corrected three times, each time to count less: first the length limit and
+ * Corrected four times, each time to count less: first the length limit and
  * the kind, then (after two reviews showed a short ad could still be covered
- * whole by one "rate" finding) the one-sentence rule.
+ * whole by one "rate" finding) the one-sentence rule, then (after a review
+ * showed one rate finding on "8.99% APR with a 2% origination fee" counted
+ * for the fee too) the rule that a rate finding reports only a rate and a fee
+ * finding only a fee.
  */
-function reports(f: AiFinding, c: { start: number; end: number }): boolean {
+function reports(f: AiFinding, c: { kind: ClaimKind; start: number; end: number }): boolean {
   if (f.kind !== "rate" && f.kind !== "fee") return false;
+  if ((f.kind === "rate") !== (c.kind === "apr")) return false;
   if (f.end - f.start > MAX_COVERING_QUOTE) return false;
   if (spansSentences(f.quote)) return false;
   const contains = f.start <= c.start && f.end >= c.end;

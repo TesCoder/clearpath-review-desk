@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { addOfferRevision, type FormState } from "@/app/actions";
 import { formatDate } from "@/lib/format";
-import { dayAfter, inForceText, isIsoDate, parsePercent, refuseRevision, termChanges, termsOn, withTimeline, type RevisionTerms } from "@/lib/offers";
+import { approvedKey, dayAfter, inForceText, isIsoDate, parsePercent, refuseRevision, termChanges, termsOn, withTimeline, type RevisionTerms } from "@/lib/offers";
 import { FIELD, FormError } from "./form";
 
 export type ApprovedAd = { ref: string; affiliate: string; placement: string; plannedDate: string };
@@ -91,6 +91,8 @@ export function OfferRevisionForm({
       <input type="hidden" name="offerId" value={offerId} />
       {/* The sheet this preview was worked out from. The server refuses the save if a revision was added since. */}
       <input type="hidden" name="seenLatest" value={nextNumber - 1} />
+      {/* The approved ads the list below was worked out from. The server refuses the save if that set changed since. */}
+      <input type="hidden" name="seenApproved" value={approvedKey(approved)} />
       <div className="space-y-4 lg:col-span-2">
         <label className="block">
           <span className="text-sm font-medium text-slate-800">Effective from</span>

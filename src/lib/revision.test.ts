@@ -203,6 +203,24 @@ describe("reviewing a revision", () => {
   });
 });
 
+describe("a rate written in words (round 5)", () => {
+  const WORDS = "Rates from six point nine nine percent APR today.";
+  const request = () => {
+    const flagged = analyzeCopy(WORDS, terms).checks.find((c) => c.status === "mismatch")!;
+    return [{ anchorText: flagged.claim.quote, body: draftRequest(flagged) }];
+  };
+
+  it('is not called removed while its number words are still in the ad', () => {
+    const { outcomes } = reviewRevision(WORDS, "Rates from six point nine nine today.", request(), terms);
+    expect(outcomes[0].outcome).toBe("changed");
+  });
+
+  it("is called removed when the number words are gone too", () => {
+    const { outcomes } = reviewRevision(WORDS, "Rates today.", request(), terms);
+    expect(outcomes[0].outcome).toBe("removed");
+  });
+});
+
 describe("word differences", () => {
   it("shows the replaced rate and the added sentence", () => {
     const parts = diffWords(V1, V2).filter((p) => p.type !== "same");

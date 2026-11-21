@@ -6,7 +6,7 @@ import type { WordingResult } from "@/lib/ai/wording";
 import { Badge } from "./ad/ui";
 import { CopyView } from "./CopyView";
 
-type Answer = WordingResult & { checked?: string };
+type Answer = WordingResult & { checked?: string; recorded?: boolean };
 
 /**
  * The marketer's optional AI wording check on a draft. It runs when the button
@@ -88,6 +88,12 @@ export function WordingCheck({
               <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950">
                 <span className="font-semibold">AI check incomplete.</span> {answer.reason} Do not read this as a full
                 account of the draft. The reviewer sees the same result.
+              </p>
+            ) : null}
+            {answer.recorded === false ? (
+              <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950" data-note="not-recorded">
+                This check could not be added to the record: this demo has reached its limit of recorded wording checks.
+                The reviewer will not be told that it ran.
               </p>
             ) : null}
             {answer.state === "nothing" ? (

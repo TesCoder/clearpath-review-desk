@@ -409,6 +409,7 @@ export async function addOfferRevision(_prev: FormState, formData: FormData): Pr
   const aprMax = parsePercent(text(formData.get("aprMax")).slice(0, 12));
   const feePct = parsePercent(text(formData.get("feePct")).slice(0, 12));
   const seenLatest = Number(text(formData.get("seenLatest")));
+  const seenApproved = text(formData.get("seenApproved")).slice(0, 4000);
 
   if ((await getRole()) !== "reviewer") {
     return { error: "Switch to the Reviewer view to change the offer sheet. Compliance owns it." };
@@ -419,7 +420,7 @@ export async function addOfferRevision(_prev: FormState, formData: FormData): Pr
   const workspaceId = await getWorkspaceId();
   let result: AddRevisionResult;
   try {
-    result = await addRevision(workspaceId, offerId, { aprMin, aprMax, feePct, effectiveFrom }, seenLatest);
+    result = await addRevision(workspaceId, offerId, { aprMin, aprMax, feePct, effectiveFrom }, seenLatest, seenApproved);
   } catch (e) {
     if (isUniqueViolation(e)) return { error: "Another change to the offer sheet arrived at the same moment. Try again." };
     throw e;
