@@ -161,7 +161,12 @@ const SEED: SeedAsset[] = [
 export async function seedWorkspace(sql: Executor, workspaceId: string): Promise<void> {
   const ago = (hours: number) => new Date(Date.now() - hours * 3600_000);
 
-  for (const a of SEED) {
+  // The six ads are written side by side, not one after another. Each ad's own
+  // rows still go in order (a version needs its ad's id), but the queries of
+  // different ads travel together on the one connection. A first visit waits
+  // for about eight round trips to the database instead of about forty, which
+  // matters because that first page load must finish inside the host's limit.
+  await Promise.all(SEED.map(async (a) => {
     const [asset] = await sql`
       insert into assets (workspace_id, ref, title, affiliate_id, offer_id, placement, planned_date, created_at)
       values (${workspaceId}, ${a.ref}, ${a.title}, ${a.affiliate}, ${a.offer}, ${a.placement},
@@ -212,7 +217,7 @@ export async function seedWorkspace(sql: Executor, workspaceId: string): Promise
                 ${sql.json({ from: a.rescheduled.from, to: a.plannedDate })}, ${ago(a.rescheduled.hoursAgo)})
       `;
     }
-  }
+  }));
 }
 
 /** Puts one workspace back to the seeded demo: its ads, its history, and any offer revisions added in it. */
