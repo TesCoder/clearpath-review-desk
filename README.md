@@ -284,7 +284,7 @@ flowchart LR
   AI --> LLM
   P --> PG
   P --> SA
-  AI -- "every quote and claim checked" --> RULES
+  AI -- "quotes verified; rates and fees compared with offer terms" --> RULES
   PG --> RULES
   SA --> RULES
   AI --> DB
@@ -292,7 +292,7 @@ flowchart LR
   SA --> DB
 ```
 
-Code decides the two things that must be exact: whether a number matches the offer, and whether an approval still counts. The model only suggests, in its own request, and what it returns is checked by code before anything is shown.
+Code decides the two things that must be exact: whether a number matches the offer, and whether an approval still counts. The model only suggests, in its own request. Code confirms that every passage it quotes is in the ad, and compares the rates and fees with the offer terms. Wording such as "everyone qualifies" is still the reviewer's to judge.
 
 - `src/lib/checks.ts`: the code-only claim checks and hidden-text detection.
 - `src/lib/status.ts`: an ad's status, derived from its versions and decisions, and the server's rule for who may decide what.
