@@ -14,7 +14,12 @@ export type VersionView = {
   fingerprint: string;
   note: string | null;
   createdAt: string;
-  /** Set when the marketer ran the AI wording check on this exact text before submitting it. */
+  /**
+   * Set when the marketer ran the AI wording check on this exact text before
+   * submitting it, and the ad still has the placement and offer terms the
+   * check was run for. After a move or an offer change it is not shown: the
+   * AI never read the text for what applies now.
+   */
   wording: WordingRecord | null;
 };
 
@@ -131,7 +136,8 @@ export async function loadAssets(workspaceId: string, sql: Executor = db()): Pro
       where a.workspace_id = ${workspaceId}
     `,
     sql`
-      select v.id, v.asset_id, v.number, v.body, v.fingerprint, v.note, v.created_at, v.wording_state, v.wording_notes
+      select v.id, v.asset_id, v.number, v.body, v.fingerprint, v.note, v.created_at,
+             v.wording_state, v.wording_notes, v.wording_revision_id, v.wording_placement
       from versions v join assets a on a.id = v.asset_id
       where a.workspace_id = ${workspaceId}
       order by v.number
@@ -164,6 +170,7 @@ export async function loadAssets(workspaceId: string, sql: Executor = db()): Pro
 
   const out: AssetView[] = [];
   for (const a of assets) {
+    const terms = termsOn(revisions, a.offer_id, a.planned_date);
     const vs: VersionView[] = versions
       .filter((v) => v.asset_id === a.id)
       .map((v) => ({
@@ -173,7 +180,10 @@ export async function loadAssets(workspaceId: string, sql: Executor = db()): Pro
         fingerprint: v.fingerprint,
         note: v.note,
         createdAt: iso(v.created_at),
-        wording: v.wording_state ? { state: v.wording_state, notes: v.wording_notes ?? 0 } : null,
+        wording:
+          v.wording_state && terms && v.wording_revision_id === terms.revisionId && v.wording_placement === a.placement
+            ? { state: v.wording_state, notes: v.wording_notes ?? 0 }
+            : null,
       }));
     if (!vs.length) continue;
     const latest = vs[vs.length - 1];
@@ -201,7 +211,6 @@ export async function loadAssets(workspaceId: string, sql: Executor = db()): Pro
         authorRole: c.author_role,
         createdAt: iso(c.created_at),
       }));
-    const terms = termsOn(revisions, a.offer_id, a.planned_date);
     const state: AssetState = {
       latestVersion: { number: latest.number, fingerprint: latest.fingerprint },
       plannedDate: a.planned_date,

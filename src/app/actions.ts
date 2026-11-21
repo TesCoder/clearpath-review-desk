@@ -270,8 +270,9 @@ export async function submitAd(_prev: FormState, formData: FormData): Promise<Fo
         returning id
       `;
       const [version] = await tx`
-        insert into versions (asset_id, number, body, fingerprint, note, wording_state, wording_notes)
-        values (${asset.id}, 1, ${body}, ${fingerprint(body)}, ${note || null}, ${checked.state}, ${checked.notes})
+        insert into versions (asset_id, number, body, fingerprint, note, wording_state, wording_notes, wording_revision_id, wording_placement)
+        values (${asset.id}, 1, ${body}, ${fingerprint(body)}, ${note || null}, ${checked.state}, ${checked.notes},
+                ${checked.state ? (terms?.revisionId ?? null) : null}, ${checked.state ? placement : null})
         returning id
       `;
       await tx`
@@ -311,8 +312,9 @@ export async function submitRevision(_prev: FormState, formData: FormData): Prom
       const number = asset.latest.number + 1;
       const checked = await wordingRecord(tx, workspaceId, fingerprint(body), asset.terms?.revisionId ?? null, asset.placement);
       const [version] = await tx`
-        insert into versions (asset_id, number, body, fingerprint, note, wording_state, wording_notes)
-        values (${asset.id}, ${number}, ${body}, ${fingerprint(body)}, ${note || null}, ${checked.state}, ${checked.notes})
+        insert into versions (asset_id, number, body, fingerprint, note, wording_state, wording_notes, wording_revision_id, wording_placement)
+        values (${asset.id}, ${number}, ${body}, ${fingerprint(body)}, ${note || null}, ${checked.state}, ${checked.notes},
+                ${checked.state ? (asset.terms?.revisionId ?? null) : null}, ${checked.state ? asset.placement : null})
         returning id
       `;
       await tx`

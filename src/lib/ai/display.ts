@@ -6,10 +6,12 @@ import type { AiFinding, AiReview } from "./types";
 
 /**
  * A finding is left out only when it says nothing beyond a flag already on
- * screen: it is a rate or fee finding, and every letter and digit it quotes
- * is inside words the code check has flagged as not matching the offer. The
- * reviewer is being shown that figure in red, and a second row would repeat
- * it. Punctuation around the figure does not count ("6.99% APR.").
+ * screen: it is a rate or fee finding, and everything it quotes is inside
+ * words the code check has flagged as not matching the offer, apart from
+ * spaces and punctuation ("6.99% APR."). The reviewer is being shown that
+ * figure in red, and a second row would repeat it. Any other character
+ * outside the flag keeps the finding on screen: a letter or digit in any
+ * script or style, a symbol, an emoji.
  *
  * In every other case the finding is shown. That includes a finding that
  * quotes a flagged figure together with any other word ("6.99% for life"):
@@ -19,7 +21,7 @@ import type { AiFinding, AiReview } from "./types";
  * APR is 12.99%"). No list of harmless words is kept here, so the cost is a
  * repeated row when the AI quotes the lead-in too ("Rates from 6.99% APR").
  *
- * Rule changes: 2. Each one showed more and hid less.
+ * Rule changes: 3. Each one showed more and hid less.
  */
 export function findingsBeyondChecks(review: AiReview | null, checks: Check[]): AiFinding[] {
   const flagged = checks.filter((c) => c.status === "mismatch").map((c) => c.claim);
@@ -27,9 +29,12 @@ export function findingsBeyondChecks(review: AiReview | null, checks: Check[]): 
   const alreadyFlagged = (f: AiFinding) => {
     if (f.kind !== "rate" && f.kind !== "fee") return false;
     let inside = 0;
-    for (let i = 0; i < f.quote.length; i++) {
-      if (inFlagged(f.start + i)) inside++;
-      else if (/[\p{L}\p{N}]/u.test(f.quote[i])) return false; // a word the red flag does not cover
+    let at = f.start;
+    // By whole character, not by UTF-16 unit: styled letters ("𝗳𝗼𝗿 𝗹𝗶𝗳𝗲") are two units each.
+    for (const ch of f.quote) {
+      if (inFlagged(at)) inside++;
+      else if (!/^[\s\p{P}]$/u.test(ch)) return false; // something the red flag does not cover
+      at += ch.length;
     }
     return inside > 0;
   };

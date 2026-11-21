@@ -173,17 +173,34 @@ create index if not exists offer_revisions_workspace_idx on offer_revisions (wor
 alter table versions add column if not exists wording_state text check (wording_state in ('notes', 'nothing', 'incomplete'));
 alter table versions add column if not exists wording_notes int;
 
--- A stored AI result goes with the revision it was read against.
+-- The text was checked for one placement and one set of offer terms. The note
+-- to the reviewer is shown only while the ad still has both.
+alter table versions add column if not exists wording_revision_id text;
+alter table versions add column if not exists wording_placement text;
+
+-- A stored AI result, and a decision, go with the offer revision they were
+-- made against. Only a revision added in one visitor's demo is ever deleted
+-- (Reset demo, or the workspace expiring), and that visitor's ads are deleted
+-- with it. The cascade means nothing that still points at such a revision can
+-- stop it being removed.
 do $$
+declare c record;
 begin
-  if exists (
-    select 1 from pg_constraint
-    where conname = 'ai_reviews_offer_revision_id_fkey' and confdeltype <> 'c'
-  ) then
-    alter table ai_reviews drop constraint ai_reviews_offer_revision_id_fkey;
-    alter table ai_reviews add constraint ai_reviews_offer_revision_id_fkey
-      foreign key (offer_revision_id) references offer_revisions (id) on delete cascade;
-  end if;
+  for c in
+    select con.conname, rel.relname
+    from pg_constraint con
+    join pg_class rel on rel.oid = con.conrelid
+    join pg_class ref on ref.oid = con.confrelid
+    join pg_namespace ns on ns.oid = rel.relnamespace
+    where con.contype = 'f' and ref.relname = 'offer_revisions'
+      and rel.relname in ('ai_reviews', 'decisions')
+      and ns.nspname = current_schema() and con.confdeltype <> 'c'
+  loop
+    execute format('alter table %I drop constraint %I', c.relname, c.conname);
+    execute format(
+      'alter table %I add constraint %I foreign key (offer_revision_id) references offer_revisions (id) on delete cascade',
+      c.relname, c.conname);
+  end loop;
 end $$;
 
 -- Reference data -------------------------------------------------------------

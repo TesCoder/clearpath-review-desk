@@ -138,6 +138,16 @@ describe("a separate promise beside a flagged figure", () => {
     }
   });
 
+  it("the other words still count when they are written in styled letters, another script, a symbol or an emoji", () => {
+    for (const tail of ["\u{1D5F3}\u{1D5FC}\u{1D5FF} \u{1D5F9}\u{1D5F6}\u{1D5F3}\u{1D5F2}", "навсегда", "永久", "\u{1F512}", "+ $0", "\u2122"]) {
+      const copy = `Rates from 6.99% APR ${tail}.`;
+      const s = setup(copy);
+      expect(s.checks.find((c) => c.status === "mismatch")?.claim.quote, tail).toBe("6.99% APR");
+      const f = s.finding(`6.99% APR ${tail}`, "rate");
+      expect(findingsBeyondChecks(review([f]), s.checks), tail).toEqual([f]);
+    }
+  });
+
   it("both are on screen together: the mismatch from code and the note from the AI", () => {
     const note = finding("6.99% for life", "rate");
     const duplicate = finding(checks.find((c) => c.status === "mismatch")!.claim.quote, "rate");

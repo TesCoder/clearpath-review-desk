@@ -146,13 +146,42 @@ describe.skipIf(!url)("an added offer revision belongs to one demo workspace (lo
       insert into ai_reviews (fingerprint, offer_revision_id, placement, prompt_version, status, findings, dropped, missed, model)
       values (${ad.latest.fingerprint}, ${added}, ${ad.placement}, 'test', 'complete', '[]'::jsonb, 0, '[]'::jsonb, 'test')
     `;
-    await sql.begin((tx) => m.seed.resetWorkspaceData(tx, a));
+    // Something the app never writes, but an older copy of the code could: a
+    // decision in another workspace that points at this workspace's revision.
+    const foreign = (await m.data.loadAsset(b, "AD-1042"))!;
+    await sql`
+      insert into decisions (version_id, kind, fingerprint, offer_revision_id, planned_date, placement, reviewer)
+      values (${foreign.latest.id}, 'request_changes', ${foreign.latest.fingerprint}, ${added}, ${foreign.plannedDate}, ${foreign.placement}, 'Test')
+    `;
+    await sql.begin((tx) => m.seed.resetWorkspaceData(tx, a)); // must not be stopped by that row
+    const [pinned] = await sql`select count(*)::int as n from decisions where offer_revision_id = ${added}`;
+    expect(pinned.n).toBe(0);
     expect((await m.data.loadRevisions(a)).some((r) => r.addedHere)).toBe(false);
     expect(await status(a, "AD-1038")).toBe("approved");
     expect((await m.data.loadAsset(a, "AD-1038"))?.terms?.revisionId).toBe("pl-winter-r1");
     const [left] = await sql`select count(*)::int as n from ai_reviews where offer_revision_id = ${added}`;
     expect(left.n).toBe(0);
     expect((await m.data.loadRevisions(b)).filter((r) => r.addedHere).length).toBe(2); // the other workspace keeps both of its own
+  });
+
+  it("the note that the marketer ran the wording check is shown only while the ad keeps the placement and terms it was checked for", async () => {
+    const sql = m.db();
+    const ad = (await m.data.loadAsset(a, "AD-1042"))!; // Dec 10, 2026, a blog article, on revision 1 after the reset
+    await sql`
+      update versions set wording_state = 'nothing', wording_notes = 0,
+        wording_revision_id = ${ad.terms!.revisionId}, wording_placement = ${ad.placement}
+      where id = ${ad.latest.id}
+    `;
+    expect((await m.data.loadAsset(a, "AD-1042"))?.latest.wording).toEqual({ state: "nothing", notes: 0 });
+    // The marketer moves it to another placement: the AI never read it for that one.
+    await sql`update assets set placement = 'Email newsletter' where id = ${ad.id}`;
+    expect((await m.data.loadAsset(a, "AD-1042"))?.latest.wording).toBeNull();
+    await sql`update assets set placement = ${ad.placement} where id = ${ad.id}`;
+    expect((await m.data.loadAsset(a, "AD-1042"))?.latest.wording).not.toBeNull();
+    // The offer changes for its date: the AI never read it against the new terms.
+    expect(await m.sheet.addRevision(a, "pl-winter", { ...raise, effectiveFrom: "2026-12-09" })).toMatchObject({ ok: true });
+    expect((await m.data.loadAsset(a, "AD-1042"))?.latest.wording).toBeNull();
+    await sql.begin((tx) => m.seed.resetWorkspaceData(tx, a));
   });
 
   it("stops at the demo's limit of added revisions", async () => {

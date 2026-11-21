@@ -137,7 +137,8 @@ export async function runReviewFor(workspaceId: string, target: ReviewTarget): P
     // cut-off or malformed answer, an outage) is not kept, so one bad moment
     // does not mark this ad incomplete for every later visitor.
     if (review.answered) {
-      await sql`
+      try {
+        await sql`
         insert into ai_reviews
           (fingerprint, offer_revision_id, placement, prompt_version, status, findings, dropped, missed, reason, model, addresses_reviewer)
         values (${asset.latest.fingerprint}, ${terms.revisionId}, ${asset.placement}, ${cacheVersion()},
@@ -145,6 +146,12 @@ export async function runReviewFor(workspaceId: string, target: ReviewTarget): P
                 ${review.reason}, ${review.model}, ${review.addressesReviewer})
         on conflict do nothing
       `;
+      } catch (e) {
+        // The offer revision was removed while the model was answering (Reset
+        // demo on a revision added in that demo). There is nothing to store
+        // the result under, and the answer is still returned to the caller.
+        if ((e as { code?: string }).code !== "23503") throw e;
+      }
     }
   } finally {
     await sql`delete from ai_pending where cache_key = ${key}`;

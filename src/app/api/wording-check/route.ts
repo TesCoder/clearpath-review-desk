@@ -25,10 +25,13 @@ export async function POST(request: Request) {
   if (!isSameOrigin(request)) return unavailable("Cross-site requests are not accepted.", 403);
 
   let input: { body?: unknown; offerId?: unknown; plannedDate?: unknown; placement?: unknown };
+  if (Number(request.headers.get("content-length") ?? 0) > MAX_COPY_CHARS * 8) return unavailable("Bad request.", 400);
   try {
     const raw = await request.text();
     if (raw.length > MAX_COPY_CHARS * 8) return unavailable("Bad request.", 400);
-    input = JSON.parse(raw) as typeof input;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return unavailable("Bad request.", 400);
+    input = parsed as typeof input;
   } catch {
     return unavailable("Bad request.", 400);
   }
