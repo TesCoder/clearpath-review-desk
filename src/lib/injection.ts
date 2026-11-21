@@ -4,12 +4,21 @@
 // checked in code, quotes checked word for word, a person approving) do not
 // depend on this list, so it does not need to be complete.
 //
-// Correction rounds on this list: 1 (llm-first-decision-architecture.mdc
-// section 6). The patterns did not change. They now run on the cleaned-up
-// copy of the text that the number check uses (hidden characters removed,
-// compatibility forms folded), because a zero-width character or a soft
-// hyphen inside "ignore previous instructions" got past them. A flag is the
-// only outcome, so this round can only flag more.
+// Correction rounds on this list: 2 (llm-first-decision-architecture.mdc
+// section 6). The patterns have not changed in either round.
+//   1. They also run on the cleaned-up copy of the text that the number check
+//      uses (hidden characters removed, compatibility forms folded), because
+//      a zero-width character or a soft hyphen inside "ignore previous
+//      instructions" got past them.
+//   2. Round 1 ran them on the cleaned-up copy only, and that lost a flag:
+//      in "Ignore[zero-width space]xyz previous instructions" the hidden
+//      character ends the word "Ignore" in the submitted text, and removing
+//      it makes the word "Ignorexyz". Now they run on both, and a flag from
+//      either is kept. So every flag the submitted text alone would give is
+//      still given: this is by construction, and a test checks it.
+// Two rounds is where this list stops being widened. What stands behind it
+// does not depend on a pattern: hidden characters are flagged in their own
+// right, the model reports text addressed to it, and a person reads the ad.
 
 import { normalizeWithMap } from "./checks";
 
@@ -26,14 +35,22 @@ const PATTERNS: Array<[RegExp, string]> = [
 
 export type InstructionFinding = { quote: string; start: number; end: number; reason: string };
 
-/**
- * Each pattern's first match, as a span of the original text. Matching is
- * done on the cleaned-up copy; the span is mapped back, so the highlight sits
- * on the submitted characters, hidden ones inside it included.
- */
-export function findInstructionText(text: string): InstructionFinding[] {
-  const { norm, map } = normalizeWithMap(text);
+type Span = { start: number; end: number };
+
+/** Each pattern's first match in the text exactly as submitted. This is the whole check as it was before round 1. */
+export function instructionTextAsSubmitted(text: string): InstructionFinding[] {
   const out: InstructionFinding[] = [];
+  for (const [re, reason] of PATTERNS) {
+    const m = re.exec(text);
+    if (m) out.push({ quote: m[0], start: m.index, end: m.index + m[0].length, reason });
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+/** Each pattern's first match in the cleaned-up copy, as a span of the submitted text. */
+function instructionTextCleanedUp(text: string): Map<string, Span> {
+  const { norm, map } = normalizeWithMap(text);
+  const out = new Map<string, Span>();
   for (const [re, reason] of PATTERNS) {
     const m = re.exec(norm);
     if (!m || m[0].length === 0) continue;
@@ -41,8 +58,28 @@ export function findInstructionText(text: string): InstructionFinding[] {
     // The end of the last matched character in the original, not the start of
     // whatever follows: hidden characters after the match are left out.
     const last = map[m.index + m[0].length - 1];
-    const end = last + (text.codePointAt(last)! > 0xffff ? 2 : 1);
-    out.push({ quote: text.slice(start, end), start, end, reason });
+    out.set(reason, { start, end: last + (text.codePointAt(last)! > 0xffff ? 2 : 1) });
+  }
+  return out;
+}
+
+/**
+ * Text addressed to an AI or to the review process. The patterns are tried on
+ * the text as submitted and on its cleaned-up copy, and a flag from either is
+ * kept. Where both find the same reason on overlapping words, one flag is
+ * shown, on the longer span. Every span is in the submitted text, so the
+ * highlight sits on the submitted characters, hidden ones inside it included.
+ */
+export function findInstructionText(text: string): InstructionFinding[] {
+  const out = instructionTextAsSubmitted(text);
+  for (const [reason, span] of instructionTextCleanedUp(text)) {
+    const same = out.find((f) => f.reason === reason);
+    const asFinding = { ...span, quote: text.slice(span.start, span.end), reason };
+    if (!same) out.push(asFinding);
+    else if (same.start < span.end && span.start < same.end) {
+      // The same words found twice. Keep the longer span.
+      if (span.end - span.start > same.end - same.start) out[out.indexOf(same)] = asFinding;
+    } else out.push(asFinding); // the same reason in two different places: both are shown
   }
   return out.sort((a, b) => a.start - b.start);
 }
