@@ -1,19 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { FINDING_LABEL } from "@/lib/ai/types";
 import type { WordingResult } from "@/lib/ai/wording";
 import { CopyView } from "./CopyView";
-
-const KIND: Record<string, string> = {
-  rate: "Rate",
-  fee: "Fee",
-  approval_or_eligibility: "Approval or eligibility",
-  credit_impact: "Credit score",
-  speed: "Speed",
-  savings_or_comparison: "Savings or comparison",
-  superlative: "Superlative",
-  other: "Other",
-};
 
 type Answer = WordingResult & { checked?: string };
 
@@ -123,7 +113,7 @@ export function WordingCheck({
                       <p className="text-slate-900">
                         <q className="font-medium">{f.quote}</q>{" "}
                         <span className="inline-block rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-900">
-                          {KIND[f.kind] ?? "Other"}
+                          {FINDING_LABEL[f.kind] ?? "Other"}
                         </span>
                       </p>
                       <p className="mt-0.5 text-slate-600">{f.why}</p>

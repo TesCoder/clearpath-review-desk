@@ -131,6 +131,57 @@ What those numbers do and do not show:
 
 **Does not apply here:** tool poisoning, memory persistence, connector drift, code execution and SQL written by a model. The model has no tools, memory, connectors or code execution.
 
+## Auth and roles
+
+**In the demo.** There is no sign-in, on purpose: anyone opening the link can try both roles in one click. Two cookies do the work. One holds a random token that names the visitor's private workspace (only its hash is stored), so no visitor sees another's ads. The other holds the view the visitor picked, Reviewer or Marketer.
+
+The server checks that view on every write, not only in the page: only the Reviewer view can approve, request changes or change the offer sheet, and only the Marketer view can submit, revise, move an ad or run the wording check. Those checks are in `src/lib/status.ts`, `src/app/actions.ts` and the wording-check route, and they are where a real identity would plug in.
+
+**The honest limit.** The role is a cookie the visitor picks, so anyone can be the reviewer in their own demo. That is fine for a demo with private, fictional data. It is the first thing real sign-in replaces.
+
+**In production I would add:**
+
+- **Sign-in** through the company's identity provider, or a hosted service such as Clerk or Supabase Auth. Which one matters less than getting a verified identity onto every request.
+- **Role-based access control.** Marketers submit and revise. Reviewers decide. Only a compliance lead changes the offer sheet. Affiliates, if they are let in at all, see the status of their own ads and nothing else.
+- **The reviewer's identity on every decision.** Today each decision is recorded as "Demo reviewer". With sign-in it is the person, which is what an audit needs.
+- **Separation of duties.** The person who submitted an ad cannot approve it.
+- **The workspace becomes the organization.** The per-visitor scoping that isolates demos today is the same boundary a tenant needs.
+
+## Reliability
+
+Not solved, but thought about. What is there, what is missing, and what I would add.
+
+**What is there**
+
+- **The database can be rewound.** Neon keeps a continuous history of changes and can restore the database to any moment inside its history window. The window's length is set by the plan: 6 hours on Neon's Free plan, and from 1 up to 30 days on the paid ones. I have not changed it from the plan's default.
+- **The app holds no state.** It is rebuilt and redeployed from GitHub on every push, and an earlier deploy can be published again from Netlify. The schema step runs before each build and is written to be safe to run more than once (`db/schema.sql`).
+- **The AI is the part most likely to fail, so nothing waits on it.** A model call has a 9-second limit and is not retried. If it fails, the screen says "unavailable" or "incomplete", never "clean", and the code checks and the reviewer's decision work as before. The AI read runs in its own request, so a decision is never queued behind it.
+- **A write either happens whole or not at all.** Each write is one transaction that locks the ad, checks, then records. Two decisions sent at the same moment cannot both land, and a deadlock between an offer change and a decision was found and fixed with a test.
+
+**What is missing**
+
+- One database in one region, with no read replica and no failover. If Neon is down, the desk is down.
+- No copy of the data outside Neon.
+- No uptime check, error tracking or alerting. I would hear about an outage from a user.
+- No rate limiting beyond the demo's caps, and no load test.
+
+**What I would add, in order:** error tracking and an uptime alert (cheapest, and it finds everything else); a scheduled export to separate storage; a read replica and a tested restore; and, if volume grows, a queue for AI reads so a slow model cannot hold up page loads.
+
+## Why these tools
+
+| Choice | Instead of | Why |
+|---|---|---|
+| Postgres | A document database | The data is linked. An offer has dated revisions, an ad has versions, and a decision points at one exact version and one offer revision. Foreign keys, transactions and row locks do work I would otherwise write by hand, such as stopping two reviewers deciding at once |
+| Neon | Running a Postgres server | Hosted Postgres with nothing to operate and a restore window included. It is plain Postgres, so moving off it is a connection string |
+| Plain SQL through postgres.js | An ORM such as Prisma | Twelve tables. The locking and the queries are short and easier to check when they can be read as written. Every value is sent as a parameter |
+| Next.js with server actions | A separate API server | One codebase and one deploy. Every write goes through one file, `src/app/actions.ts`, with its checks beside it |
+| Netlify | Vercel and others | It deploys on every push with the schema step in the build. An account was already set up. Vercel would have done the same job |
+| Claude with structured output | Free-text answers | The answer has a fixed shape, so code can check every quote word for word and treat anything malformed as incomplete |
+| Numbers checked in code | Letting the model judge rates | A rate either matches the offer sheet or does not. Code is exact, free, and cannot be talked out of it by the ad. The model is kept for wording that code cannot read |
+| Status worked out, never stored | An "approved" column | One source of truth. When the text, the date, the placement or the offer changes, the approval stops counting with no clean-up job to forget |
+| No sign-in | Sign-in now | So the demo opens in one click. "Auth and roles" above says what production adds |
+| Vitest and Playwright | Manual checking | The rules are pure functions, so they are tested without a database or a model. The click-throughs run against the live site and fail the command on any failed check |
+
 ## Measuring throughput
 
 The outcome to aim at is **approved ads per reviewer-hour**, with time from submission to decision and revision rounds per ad as supporting measures.
@@ -148,13 +199,17 @@ What exists today:
 
 ## Assumptions
 
-- The reviewer's lost time is context reconstruction. A hypothesis.
-- The marketer submits on the affiliate's behalf. Affiliates do not log in.
-- Each campaign has one offer sheet with dated revisions. The revision in effect on the planned publication date applies.
-- A person approves every version. The tool never approves.
-- A missed problem is worse than a false flag, so unclear numbers are shown to the reviewer, not dropped.
-- The setting is US consumer lending, one product: closed-end personal loans, under Regulation Z's advertising rules.
-- Every company, offer, rate, affiliate and ad here is fictional. The rule cited is an example, not a compliance program and not legal advice.
+The brief left most of this open, so each assumption is stated with the reason for it.
+
+| Assumption | Why |
+|---|---|
+| The reviewer's lost time is context reconstruction: finding the offer sheet, the last request and what changed | The brief says the process runs on Excel and email. Those tools hold the facts in three places and none of them shows a change between two versions. It is a hypothesis, and "Measuring throughput" says how I would test it |
+| The marketer submits on the affiliate's behalf. Affiliates do not log in | An affiliate is an outside partner. Accounts for outside parties bring identity checks, support and a wider attack surface, and the marketer already owns the relationship |
+| Each campaign has one offer sheet with dated revisions, and the revision in effect on the planned publication date applies | An ad is true or false on the day it runs, not the day it is reviewed. Rates change, and ads are approved ahead of time |
+| A person approves every version. The tool never approves | It is a regulated sign-off, and the model reads text written by an outside party. A wrong approval costs far more than a slow one |
+| A missed problem is worse than a false flag | So an unclear number is shown to the reviewer and never dropped. The cost is some amber flags on harmless sentences |
+| US consumer lending, one product: closed-end personal loans under Regulation Z's advertising rules | One product done end to end shows more than three done thinly. The brief names personal loans first |
+| Every company, offer, rate, affiliate and ad here is fictional | It is a public demo. The rule cited is an example, not a compliance program and not legal advice |
 
 ## Adding credit cards and mortgages
 
@@ -210,6 +265,38 @@ The deployed demo uses the Anthropic API, and that is the only model route in pr
 ## How it is built
 
 Next.js (App Router) on Netlify, Postgres on Neon, Tailwind.
+
+```mermaid
+flowchart LR
+  B["Browser<br/>Marketer and Reviewer views<br/>per-visitor workspace cookie"]
+  subgraph N["Netlify: one Next.js app"]
+    P["proxy.ts<br/>workspace cookie, content security policy"]
+    PG["Pages (read)<br/>status worked out on every load"]
+    SA["Server actions (write)<br/>actions.ts: lock the ad, check, record"]
+    API["Routes for the AI read<br/>/api/ai-review, /api/wording-check"]
+    CC["Code checks<br/>checks.ts, injection.ts"]
+    ST["Status and decision rules<br/>status.ts, offers.ts"]
+    AI["AI claim finder<br/>ai/review.ts, ai/store.ts"]
+  end
+  DB[("Neon Postgres<br/>offers and revisions, ads, versions,<br/>decisions, events, AI results")]
+  LLM["Anthropic API: Claude<br/>suggests only, no tools"]
+  B --> P
+  P --> PG
+  P --> SA
+  P --> API
+  PG --> CC
+  PG --> ST
+  PG --> DB
+  SA --> ST
+  SA --> CC
+  SA --> DB
+  API --> AI
+  AI --> LLM
+  AI -- "every quote and claim checked" --> CC
+  AI --> DB
+```
+
+Code decides the two things that must be exact: whether a number matches the offer, and whether an approval still counts. The model only suggests, in its own request, and what it returns is checked by code before anything is shown.
 
 - `src/lib/checks.ts`: the code-only claim checks and hidden-text detection.
 - `src/lib/status.ts`: an ad's status, derived from its versions and decisions, and the server's rule for who may decide what.

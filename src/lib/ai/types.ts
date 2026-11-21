@@ -14,6 +14,18 @@ export const FINDING_KINDS = [
 ] as const;
 export type FindingKind = (typeof FINDING_KINDS)[number];
 
+/** The words shown for each kind, wherever a finding is listed. */
+export const FINDING_LABEL: Record<FindingKind, string> = {
+  rate: "Rate",
+  fee: "Fee",
+  approval_or_eligibility: "Approval or eligibility",
+  credit_impact: "Credit score",
+  speed: "Speed",
+  savings_or_comparison: "Savings or comparison",
+  superlative: "Superlative",
+  other: "Other",
+};
+
 /** One raw finding as the model returns it. */
 export type ModelFinding = {
   quote: string;
