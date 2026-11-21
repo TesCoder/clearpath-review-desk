@@ -612,9 +612,38 @@ describe("a match depends on the shape of the sentence too (round 8)", () => {
     expect(analyzeCopy("No origination fee unless you refinance.", free).checks[0].status).toBe("needs_reviewer");
   });
 
+  it("a comma before the figure means a clause came first: held, and no edit (round 9)", () => {
+    for (const t of [
+      "If you have an 800 credit score, rates start at 8.99% APR.",
+      "For existing VIP members only, APR is as low as 8.99%.",
+      "Unless you miss a payment, rates are from 8.99% APR.",
+      "Except in Texas and California, rates start at 8.99% APR.",
+      "Competitors charge 24.99%, while our rates start at 8.99% APR.",
+      "In theory, rates start at 8.99% APR.",
+    ]) {
+      expect(greens(t), t).toBe(0);
+    }
+    expect(edits("If you qualify, rates from 6.99% APR.")).toBe(0);
+    // The comma inside a number is not a clause.
+    expect(greens("Borrow $5,000 or more with rates from 8.99% APR.")).toBe(1);
+  });
+
+  it("a colon or a semicolon at the end of a line does not end the sentence (round 9)", () => {
+    for (const t of [
+      "Rates from 8.99% APR:\nOnly for 12-month secured loans.",
+      "Rates from 8.99% APR;\nAdjusts monthly thereafter.",
+      "A 2% origination fee applies:\nUnless waived for autopay borrowers.",
+      "A 2% origination fee is charged;\nPlus a 5% application fee.",
+    ]) {
+      expect(greens(t), t).toBe(0);
+    }
+  });
+
   it("what a shape rule cannot see is still a match: stated as a limit in the README", () => {
     // Kept as tests so the limit is written down where the code is, not discovered.
     expect(greens("A 2% origination fee applies. Only on your second loan.")).toBe(1);
     expect(greens("Nobody pays rates from 8.99% APR.")).toBe(1);
+    expect(greens("Rates after the introductory period are from 8.99% APR.")).toBe(1);
+    expect(greens("Promotional teaser rates from 8.99% APR.")).toBe(1);
   });
 });

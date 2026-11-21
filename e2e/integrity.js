@@ -145,6 +145,10 @@ const approvals = async (page) => ((await page.innerText('section:has(h2:has-tex
     ok('"8,990%" is not read as 8.99%: it is held', (await green()) === 0);
     await live('The minimum APR is -8.99%.');
     ok('"-8.99%" is not read as 8.99%: it is held', (await green()) === 0);
+    await live('If you have an 800 credit score, rates start at 8.99% APR.');
+    ok('a rate with a condition before it, after a comma, is held, not green', (await green()) === 0);
+    await live('A 2% origination fee applies:\nUnless waived for autopay borrowers.');
+    ok('a fee whose condition follows a colon on the next line is held, not green', (await green()) === 0);
     await live('Rates from 8.99% APR. A 2% origination fee applies.');
     ok('after all that, the plain statements are still green', (await green()) === 2);
     const plainFee = await live('Rates from 8.99% APR. A 2% origination fee applies.');

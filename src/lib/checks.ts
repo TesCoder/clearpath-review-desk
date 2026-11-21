@@ -3,10 +3,10 @@
 // What this file decides: whether a claim in ad copy "matches" the offer,
 // "does not match", or "needs the reviewer".
 //
-// It has been corrected eight times, each time after a test or a review found
+// It has been corrected nine times, each time after a test or a review found
 // a misread. After the second, the approach changed: instead of teaching the
 // code more wording, it reads a short list of exact forms and holds
-// everything else open for a person. Rounds 3 to 8 each made it say less.
+// everything else open for a person. Rounds 3 to 9 each made it say less.
 //   1. A manual test of the submit form: a rate written in words was read as
 //      nothing to compare. Added percentages written out in words.
 //   2. An independent review: ranges, unusual digits and percent signs, and
@@ -50,12 +50,22 @@
 //      line break ends a sentence only after end punctuation or before a
 //      blank line; a figure with a minus sign or a comma is held. The one
 //      wording change is that "n't" and "cannot" count as "not".
+//   9. A last sweep found the same two shapes from the other side: a
+//      condition BEFORE the figure ("If you have an 800 credit score, rates
+//      start at 8.99% APR"), and a line that ends in a colon or semicolon
+//      with the condition on the next line ("A 2% origination fee applies:" /
+//      "Unless waived for autopay borrowers"). Now a comma before the figure
+//      in its sentence holds it (a clause came first), and only a full stop,
+//      "!" or "?" ends a sentence at a line break. No word was added.
 //
-// What this file still cannot do, by design: it reads one sentence at a time.
-// A condition in the NEXT sentence ("A 2% origination fee applies. Only on
-// your second loan.") or a denial with no "not" in it ("Nobody pays rates from
-// 8.99% APR") still shows the figure as a match. No list of words closes
-// that. The README says so, and the reviewer and the AI read the sentence.
+// What this file still cannot do, by design: it reads one sentence at a time,
+// and of the words before a figure it reads only "no", "not", "never" and a
+// comma. A condition in the NEXT sentence ("A 2% origination fee applies.
+// Only on your second loan."), a denial with no "not" in it ("Nobody pays
+// rates from 8.99% APR") and a qualifier before the figure ("Rates after the
+// introductory period are from 8.99% APR") still show the figure as a match.
+// No list of words closes that. The README says so, and the reviewer and the
+// AI read the sentence.
 //
 // The only forms this file reads as a figure (the approved forms):
 //   1. digits, an optional decimal part, at most one space, then "%",
@@ -125,6 +135,8 @@ export type Claim = {
   followed?: true;
   /** The figure's sentence is a question. */
   question?: true;
+  /** A comma comes before the figure in its sentence: a clause came first ("If you qualify, rates from 8.99% APR"). */
+  afterClause?: true;
 };
 
 export type CheckStatus = "ok" | "mismatch" | "needs_reviewer";
@@ -324,9 +336,10 @@ function wordsToNumber(whole: string, decimals: string | undefined): number {
 }
 
 function sentenceBounds(norm: string, at: number): [number, number] {
-  // A line break ends a sentence only after end punctuation or next to a blank
-  // line. "No fees" on one line and "for late payments" on the next is one
-  // sentence: read as two, the first looked like a plain claim.
+  // A line break ends a sentence only after a full stop, "!" or "?", or next
+  // to a blank line. "No fees" on one line and "for late payments" on the next
+  // is one sentence: read as two, the first looked like a plain claim. A colon
+  // or semicolon does not end one: what follows it belongs to the same claim.
   const lineEnds = (i: number) => {
     let next = i + 1;
     while (next < norm.length && (norm[next] === " " || norm[next] === "\t" || norm[next] === "\r")) next++;
@@ -336,7 +349,7 @@ function sentenceBounds(norm: string, at: number): [number, number] {
       if (norm[prev] === "\n") return true;
       prev--;
     }
-    return prev < 0 || /[.!?:;]/.test(norm[prev]);
+    return prev < 0 || /[.!?]/.test(norm[prev]);
   };
   const isBreak = (i: number) =>
     norm[i] === "\n"
@@ -481,6 +494,8 @@ export function findClaims(text: string): Claim[] {
       if (label && !claim.endpoint) claim.endpoint = label[1].startsWith("max") ? "maximum" : "minimum";
       if (NEGATION.test(lower.slice(ss, n.s))) claim.negated = true;
       if (lower[se] === "?") claim.question = true;
+      // A comma followed by a space, not the comma inside "$5,000".
+      if (/,\s/.test(lower.slice(ss, n.s))) claim.afterClause = true;
     }
     claims.push(claim);
     figureSpans.set(claim, [n.s, e]);
@@ -623,7 +638,7 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         // question: "Rates from 6.99% APR are unavailable" would become a
         // sentence about 8.99% that is still not an offer of it.
         suggestion:
-          claim.statesMinimum && !claim.followed && !claim.negated && !claim.question
+          claim.statesMinimum && !claim.followed && !claim.negated && !claim.question && !claim.afterClause
             ? withNumber(claim, terms.aprMin.toFixed(2))
             : null,
       };
@@ -654,7 +669,7 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
     // lowest rate and says the opposite of the offer.
     const asLowest = (saysLowest || claim.rangeEnd === "low") && claim.endpoint !== "maximum";
     const asHighest = (claim.endpoint === "maximum" || claim.rangeEnd === "high") && !saysLowest;
-    const plainly = !claim.negated && !claim.followed && !claim.question;
+    const plainly = !claim.negated && !claim.followed && !claim.question && !claim.afterClause;
     if (claim.value === terms.aprMin && asLowest && plainly) {
       return { claim, status: "ok", message: `${percent(claim.value)} APR is the lowest APR on the offer (${range}).`, suggestion: null };
     }
