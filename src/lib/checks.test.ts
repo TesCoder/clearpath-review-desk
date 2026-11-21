@@ -739,6 +739,12 @@ describe("a match depends on the shape of the sentence too (round 8)", () => {
     // A number before the figure still holds the whole expression: alone, the figure could be a match.
     expect(checks("Up to 5.99-35.99% APR").map((c) => [c.claim.quote, c.status])).toEqual([["5.99-35.99% APR", "needs_reviewer"]]);
     expect(greens("As low as 5 to 8.99% APR")).toBe(0);
+    // The cost, stated as a limit in the README: a wrong rate with a number just before it is amber, not red.
+    for (const t of ["Rates from 1 6.99% APR", "2026 6.99% APR"]) {
+      expect(reds(t), t).toEqual([]);
+      expect(checks(t).every((c) => c.status === "needs_reviewer"), t).toBe(true);
+      expect(checks(t).some((c) => c.claim.quote.includes("6.99")), t).toBe(true);
+    }
   });
 
   it("an amber message says what was held (round 11, wording only)", () => {

@@ -631,6 +631,10 @@ export function findClaims(text: string): Claim[] {
   //     called a match or be offered an edit there, because the number
   //     follows it in its statement. So keeping it can only keep a red flag
   //     on a figure that is outside the offer. Dropping it hid that flag.
+  //     Left as it is, and stated in the README: a number just before a WRONG
+  //     figure ("Rates from 1 6.99% APR") is still one amber hold, not a red
+  //     flag. Reporting the figure as well would change the shape of a partial
+  //     range, which the revision card and the AI cross-check both read.
   const inRead = (s: number, e: number) => read.some(([a, b]) => s < b && a < e);
   const JOIN = /^\s*(?:-|\u2013|\u2014|to|and|\/)?\s*$/;
   ANY_NUMBER.lastIndex = 0;
