@@ -159,6 +159,11 @@ const approvals = async (page) => ((await page.innerText('section:has(h2:has-tex
     const table = await live('Interest rate: 7.00%\nAPR: 8.99%');
     ok('an interest rate above an APR line is not flagged red as "7.00% APR"',
       !/7\.00% APR/.test(table) && (await p.$$('[aria-live=polite] li.text-red-950')).length === 0);
+    const swallowed = await live('Rates from 6.99% APR\n\n12-month fixed rate');
+    ok('a number in the next paragraph does not take the red flag off a wrong rate',
+      /The ad says 6\.99% APR/.test(swallowed) && (await p.$$('[aria-live=polite] li.text-red-950')).length === 1);
+    await live('Prepayment fee: 0%\nOrigination fee: 2%');
+    ok('a fee table is not flagged red by the fee named on the next row', (await p.$$('[aria-live=polite] li.text-red-950')).length === 0 && (await green()) === 0);
     await live('Rates from 8.99% APR. A 2% origination fee applies.');
     ok('after all that, the plain statements are still green', (await green()) === 2);
     const plainFee = await live('Rates from 8.99% APR. A 2% origination fee applies.');

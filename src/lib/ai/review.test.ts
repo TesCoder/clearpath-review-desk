@@ -76,14 +76,20 @@ describe("the guardrail proof: the model says everything is fine", () => {
   });
 });
 
-describe("a claim that runs across a line break", () => {
+describe("a claim the model quotes across a line break", () => {
   it("is marked incomplete, and the reason does not say the model left it out", async () => {
-    const copy = "No origination\nfee.";
-    const honest = fake({ findings: [finding("No origination\nfee", { kind: "fee" })], copy_addresses_reviewer: false });
+    const copy = "Rates from 8.99%\nAPR.";
+    const honest = fake({ findings: [finding("8.99%\nAPR")], copy_addresses_reviewer: false });
     const ai = await reviewWithModel(copy, terms, PLACEMENT, honest);
     expect(ai.status).toBe("incomplete");
-    expect(ai.reason).toContain("runs across a line break");
+    expect(ai.reason).toContain("quoted across a line break");
     expect(ai.reason).not.toContain("did not report");
+  });
+
+  it("is complete when the model quotes the figure on its own line", async () => {
+    const honest = fake({ findings: [finding("8.99%")], copy_addresses_reviewer: false });
+    const ai = await reviewWithModel("Rates from 8.99%\nAPR.", terms, PLACEMENT, honest);
+    expect(ai.status).toBe("complete");
   });
 });
 

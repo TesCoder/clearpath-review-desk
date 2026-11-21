@@ -3,11 +3,11 @@
 // What this file decides: whether a claim in ad copy "matches" the offer,
 // "does not match", or "needs the reviewer".
 //
-// It has been corrected eleven times, each time after a test or a review found
+// It has been corrected twelve times, each time after a test or a review found
 // a misread. After the second, the approach changed: instead of teaching the
 // code more wording, it reads a short list of exact forms and holds
 // everything else open for a person. Rounds 3 to 9 each made it say less;
-// round 10 undid a side effect of round 8, and round 11 added no rule.
+// round 10 undid a side effect of round 8, and rounds 11 and 12 added no rule.
 //   1. A manual test of the submit form: a rate written in words was read as
 //      nothing to compare. Added percentages written out in words.
 //   2. An independent review: ranges, unusual digits and percent signs, and
@@ -78,6 +78,23 @@
 //      statement (the words before it). No word was added to any list. Three
 //      amber messages were reworded to say what was held; no result changed
 //      with them.
+//  12. A fifth sweep found the next one of the same kind, and it hid a red
+//      flag: in "Rates from 6.99% APR", a blank line, "12-month fixed rate",
+//      the 12 was taken as the other half of a range, and the rate that had
+//      been read was replaced by one amber hold. The builder had seen that
+//      lookup in round 11 and left it as "only a hold". Every lookup in this
+//      file was then listed, and the three that still crossed a line break
+//      were bounded: the join of a figure with a nearby number, the words
+//      that name the origination fee ("Prepayment fee: 0%" above
+//      "Origination fee of 2%" flagged the 0% red), and the "no fee" phrase
+//      ("$0" at the end of one table row and "Origination fee" at the start
+//      of the next was read as a claim of no fee). The cost: a claim broken
+//      in the middle of its own phrase ("No origination" / "fee.") is now
+//      held in amber on each line, not flagged red.
+//      What still reads across a line break, on purpose: whether a claim
+//      says nothing more, and the lead-in before a rate ("from", "up to"),
+//      both within one statement; and a figure whose "%" or "percent" is on
+//      the next line.
 //
 // What this file still cannot do, by design: it reads one sentence at a time,
 // and of the words before a figure it reads only "no", "not", "never" and a
@@ -319,8 +336,10 @@ const TOPIC_WORDS = /\b(?:aprs?|annual percentage rates?|rates?|interest|origina
 const ANY_NUMBER = /(?:(?<![\d.,])[.,](?=\d))?\d+(?:[.,]\d+)*/g;
 // "No fee" about the loan itself. "No late fee" or "no prepayment fee" are
 // different claims and are not matched here.
+// The phrase sits on one line: "$0" at the end of one table row and "Origination fee"
+// at the start of the next are two rows, not a claim of no fee.
 const NO_FEE =
-  /(?:\b(?:no|zero|without(?: an| any)?)|\$\s?0|\b0)\s+(?:(?:origination|upfront|up-front|lender|loan)\s+)?fees?\b/g;
+  /(?:\b(?:no|zero|without(?: an| any)?)|\$[^\S\n]?0|\b0)[^\S\n]+(?:(?:origination|upfront|up-front|lender|loan)[^\S\n]+)?fees?\b/g;
 
 // A percentage written out in words: "six point nine nine percent",
 // "twenty-one percent". An exact, well-defined form, so code reads it. Looser
@@ -528,7 +547,9 @@ export function findClaims(text: string): Claim[] {
     // compared with it only when the ad plainly names that fee. A prepayment,
     // late or unnamed fee is held for the reviewer, with no suggested edit:
     // "changing 0% to 2%" on a prepayment fee would write a false claim.
-    if (kind === "fee" && !namesOriginationFee(lower, n.s, n.e)) kind = "unclassified";
+    // The fee is named on the figure's own line. "Prepayment fee: 0%" above a
+    // row that starts "Origination fee" is not a 0% origination fee.
+    if (kind === "fee" && !namesOriginationFee(line, n.s - ls, n.e - ls)) kind = "unclassified";
     // Include a directly following "APR" in the quoted words, on the same
     // line only. "Interest rate: 7.00%" above a line "APR: 8.99%" must not
     // borrow that line's label and become a 7.00% APR.
@@ -613,8 +634,13 @@ export function findClaims(text: string): Claim[] {
       if (c.kind === "no_fee" || c.value === null) continue;
       const span = figureSpans.get(c);
       if (!span) continue;
-      const joinedAfter = span[0] >= e && span[0] - e <= 5 && JOIN.test(lower.slice(e, span[0]));
-      const joinedBefore = s >= span[1] && s - span[1] <= 5 && JOIN.test(lower.slice(span[1], s));
+      // On one line only. A number that starts the next line ("12-month fixed
+      // rate", "2) ...") is not the other half of this figure, and must not
+      // take a rate that was read, and its red flag, out of the results.
+      const gapAfter = lower.slice(e, Math.max(e, span[0]));
+      const gapBefore = lower.slice(span[1], Math.max(span[1], s));
+      const joinedAfter = span[0] >= e && span[0] - e <= 5 && !gapAfter.includes("\n") && JOIN.test(gapAfter);
+      const joinedBefore = s >= span[1] && s - span[1] <= 5 && !gapBefore.includes("\n") && JOIN.test(gapBefore);
       if (joinedAfter || joinedBefore) {
         s = Math.min(s, span[0]);
         e = Math.max(e, span[1]);
@@ -758,7 +784,13 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         claim,
         status: "needs_reviewer",
         message: statedAsThatEnd
-          ? `The ad says ${percent(claim.value)} APR. That is the ${which} APR on the offer (${range}), but its statement says more than that, on this line or the next. Please read the claim.`
+          ? `The ad says ${percent(claim.value)} APR. That is the ${which} APR on the offer (${range}), but ${
+              claim.followed
+                ? "its statement says more than that, on this line or the next"
+                : claim.question
+                  ? "its statement is a question"
+                  : "the words before it in its statement may change what it says"
+            }. Please read the claim.`
           : `The ad says ${percent(claim.value)} APR. That is the ${which} APR on the offer (${range}), but the check could not read the ad's wording as stating it as the ${which} rate. Please read the claim.`,
         suggestion: null,
       };
@@ -867,13 +899,12 @@ export type CopyAnalysis = {
 function holdUnusualForms(check: Check): Check {
   if (check.status !== "ok" || /^[\x20-\x7E]*$/.test(check.claim.quote)) return check;
   // A claim that runs across a line break is held the same way, and told apart.
-  const wrapped = /^[\x20-\x7E\r\n\t]*$/.test(check.claim.quote);
+  const spaced = /^[\x20-\x7E\r\n\t]*$/.test(check.claim.quote);
+  const how = !spaced ? "using unusual characters" : /[\r\n]/.test(check.claim.quote) ? "across a line break" : "with a tab inside it";
   return {
     ...check,
     status: "needs_reviewer",
-    message: wrapped
-      ? `The ad states "${check.claim.quote}" across a line break. Read as one line it matches the offer, but please read it yourself.`
-      : `The ad states "${check.claim.quote}" using unusual characters. Read as plain text it matches the offer, but please read it yourself.`,
+    message: `The ad states "${check.claim.quote}" ${how}. Read as plain text on one line it matches the offer, but please read it yourself.`,
     suggestion: null,
   };
 }

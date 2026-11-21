@@ -190,10 +190,10 @@ export function finalizeReview(
   // The model was told to report every explicit rate and fee. If it left out
   // one the code check found, something steered it or it missed it: either
   // way the reviewer should not read its answer as complete.
-  const missedByModel = findClaims(copy)
+  const missed = findClaims(copy)
     .filter((c) => c.kind !== "unclassified")
-    .filter((c) => !findings.some((f) => reports(f, c)))
-    .map((c) => c.quote);
+    .filter((c) => !findings.some((f) => reports(f, c)));
+  const missedByModel = missed.map((c) => c.quote);
 
   const reasons: string[] = [];
   if (dropped > 0) {
@@ -201,11 +201,15 @@ export function finalizeReview(
       `${dropped} thing${dropped === 1 ? "" : "s"} the model reported could not be found word for word in the ad and ${dropped === 1 ? "was" : "were"} discarded.`,
     );
   }
-  // A claim that runs across a line break can never be credited: a finding
-  // must quote within one line to count. Say that, and keep "did not report"
-  // for a claim the model could have reported and did not.
-  const wrapped = missedByModel.filter((q) => q.includes("\n"));
-  const unreported = missedByModel.filter((q) => !q.includes("\n"));
+  // A finding must quote within one line to count. So a claim the model did
+  // quote, in words that run across a line break ("8.99%" on one line and
+  // "APR" on the next), is not credited. Say that, and keep "did not report"
+  // for a claim the model left out.
+  const acrossLine = (c: { start: number; quote: string }) =>
+    c.quote.includes("\n") ||
+    findings.some((f) => (f.kind === "rate" || f.kind === "fee") && f.quote.includes("\n") && f.start <= c.start && f.end > c.start);
+  const wrapped = missed.filter(acrossLine).map((c) => c.quote);
+  const unreported = missed.filter((c) => !acrossLine(c)).map((c) => c.quote);
   if (unreported.length > 0) {
     reasons.push(
       `The model did not report ${unreported.length === 1 ? "a claim" : `${unreported.length} claims`} the code check found (${unreported.map((q) => `"${q}"`).join(", ")}).`,
@@ -213,7 +217,7 @@ export function finalizeReview(
   }
   if (wrapped.length > 0) {
     reasons.push(
-      `${wrapped.length === 1 ? "A claim" : `${wrapped.length} claims`} the code check found ${wrapped.length === 1 ? "runs" : "run"} across a line break (${wrapped.map((q) => `"${q.replace(/\s+/g, " ")}"`).join(", ")}), so it could not be confirmed that the model reported ${wrapped.length === 1 ? "it" : "them"}.`,
+      `${wrapped.length === 1 ? "A claim" : `${wrapped.length} claims`} the code check found ${wrapped.length === 1 ? "was" : "were"} quoted across a line break (${wrapped.map((q) => `"${q.replace(/\s+/g, " ")}"`).join(", ")}), so it could not be confirmed that the model reported ${wrapped.length === 1 ? "it" : "them"}.`,
     );
   }
   // Copy that talks to the reviewer or to an AI, answered with nothing at all,

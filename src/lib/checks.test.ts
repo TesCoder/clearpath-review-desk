@@ -689,6 +689,36 @@ describe("a match depends on the shape of the sentence too (round 8)", () => {
     expect(next.filter((c) => c.status === "ok")).toHaveLength(0);
   });
 
+  it("a number, a fee name or a zero on another line is not part of this claim (round 12)", () => {
+    const reds = (t: string) => checks(t).filter((c) => c.status === "mismatch").map((c) => c.claim.quote);
+    // A number that starts the next line must not take a red flag out of the results.
+    expect(reds("Rates from 6.99% APR\n\n12-month fixed rate")).toEqual(["6.99% APR"]);
+    expect(reds("1) Rates from 6.99% APR\n2) A 2% origination fee applies.")).toEqual(["6.99% APR"]);
+    expect(reds("Rates from 6.99% APR.\n\n12-month fixed rate")).toEqual(["6.99% APR"]);
+    // A partial range on one line is still held whole.
+    const partial = checks("Rates from 5.99 to 35.99% APR");
+    expect(partial.map((c) => [c.claim.quote, c.status])).toEqual([["5.99 to 35.99% APR", "needs_reviewer"]]);
+    // A fee table: each row is read by itself, and nothing is red.
+    for (const t of [
+      "Prepayment fee: 0%\n\nOrigination fee of 2%.",
+      "Prepayment fee: 0%\nOrigination fee: 2%",
+      "Late fee: 5%\nOrigination fee: 2%",
+      "Prepayment penalty: $0\nOrigination fee: 2%",
+      "Annual fee: 0\nOrigination fee: 2%",
+      "Late fees: zero\nOrigination fee: 2%",
+    ]) {
+      expect(reds(t), t).toEqual([]);
+    }
+    // The same phrases on one line are still read.
+    expect(reds("No origination fee.")).toEqual(["No origination fee"]);
+    expect(reds("A 10% origination fee applies.")).toEqual(["10%"]);
+    expect(reds("Origination fee of 10%.")).toEqual(["10%"]);
+    // The cost: a claim broken in the middle of its own phrase is held, not red.
+    const broken = checks("No origination\nfee.");
+    expect(broken.length).toBeGreaterThan(0);
+    expect(broken.every((c) => c.status === "needs_reviewer")).toBe(true);
+  });
+
   it("an amber message says what was held (round 11, wording only)", () => {
     const both = checks("Borrow up to $50,000 with rates from 8.99% APR.").find((c) => c.claim.kind === "apr")!;
     expect(both.status).toBe("needs_reviewer");
@@ -697,12 +727,17 @@ describe("a match depends on the shape of the sentence too (round 8)", () => {
       expect(c.status).toBe("needs_reviewer");
       expect(c.message).toMatch(/says more than that, on this line or the next/);
     }
+    expect(checks("Rates from 8.99% APR?")[0].message).toMatch(/its statement is a question/);
+    expect(checks("If you qualify, rates from 8.99% APR.")[0].message).toMatch(/the words before it in its statement may change what it says/);
+    expect(checks("Rates from 8.99%\tAPR.")[0].message).toMatch(/with a tab inside it/);
     // A stated maximum that is not the offer's keeps its own message.
     expect(checks("The maximum APR is 12.99%.")[0].message).toMatch(/states a maximum APR of 12\.99%/);
   });
 
   it("what a shape rule cannot see is still a match: stated as a limit in the README", () => {
     // Kept as tests so the limit is written down where the code is, not discovered.
+    // A heading above a blank line is not read with the paragraph below it.
+    expect(greens("The maximum you'll pay:\n\nFrom 8.99% APR.")).toBe(1);
     // The last line of a list has nothing after it, so a plain rate there is a match.
     expect(greens("2% origination fee\nRates from 8.99% APR")).toBe(1);
     expect(greens("A 2% origination fee applies. Only on your second loan.")).toBe(1);
