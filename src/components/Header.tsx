@@ -1,24 +1,9 @@
 import Link from "next/link";
 import { resetDemo, switchRole } from "@/app/actions";
 import type { Role } from "@/lib/status";
-import { RoleHint, StayOnAd } from "./RoleSwitch";
+import { RoleHint, RoleTabs, StayOnAd } from "./RoleSwitch";
 
 export function Header({ role }: { role: Role }) {
-  const tab = (value: Role, label: string) => (
-    <button
-      type="submit"
-      name="role"
-      value={value}
-      aria-pressed={role === value}
-      className={
-        role === value
-          ? "rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white"
-          : "rounded-md px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200"
-      }
-    >
-      {label}
-    </button>
-  );
   return (
     <header className="border-b border-slate-200 bg-white">
       <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 sm:px-6">
@@ -29,8 +14,7 @@ export function Header({ role }: { role: Role }) {
         <form action={switchRole} className="flex items-center gap-1 rounded-lg bg-slate-100 p-1" aria-label="View as">
           <StayOnAd />
           <span className="px-2 text-xs font-medium uppercase tracking-wide text-slate-500">View as</span>
-          {tab("reviewer", "Reviewer")}
-          {tab("marketer", "Marketer")}
+          <RoleTabs role={role} />
         </form>
         <nav className="flex items-center gap-4 text-sm" aria-label="Pages">
           <Link href={role === "marketer" ? "/marketer" : "/"} className="text-slate-700 underline-offset-4 hover:underline">
