@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import type { Executor } from "./db";
 import { fingerprint } from "./fingerprint";
 
@@ -161,63 +162,79 @@ const SEED: SeedAsset[] = [
 export async function seedWorkspace(sql: Executor, workspaceId: string): Promise<void> {
   const ago = (hours: number) => new Date(Date.now() - hours * 3600_000);
 
-  // The six ads are written side by side, not one after another. Each ad's own
-  // rows still go in order (a version needs its ad's id), but the queries of
-  // different ads travel together on the one connection. A first visit waits
-  // for about eight round trips to the database instead of about forty, which
-  // matters because that first page load must finish inside the host's limit.
-  await Promise.all(SEED.map(async (a) => {
-    const [asset] = await sql`
-      insert into assets (workspace_id, ref, title, affiliate_id, offer_id, placement, planned_date, created_at)
-      values (${workspaceId}, ${a.ref}, ${a.title}, ${a.affiliate}, ${a.offer}, ${a.placement},
-              ${a.plannedDate}, ${ago(a.versions[0].hoursAgo)})
-      returning id
-    `;
+  // The whole demo is written with five inserts, one per table, not one insert
+  // per row. Ids are made here, so a version can name its ad before either
+  // exists in the database. The hosted database is reached through a pooler
+  // with prepared statements off, where every query costs two round trips and
+  // queries cannot be sent together: about forty single-row inserts meant
+  // about eighty round trips on a visitor's first page load. Five inserts
+  // mean about ten. That first load must finish inside the host's time limit.
+  const assets: Array<Record<string, unknown>> = [];
+  const versions: Array<Record<string, unknown>> = [];
+  const decisions: Array<Record<string, unknown>> = [];
+  const comments: Array<Record<string, unknown>> = [];
+  const events: Array<Record<string, unknown>> = [];
+  const event = (assetId: string, versionId: string | null, type: string, actor: string, data: object, at: Date) =>
+    events.push({ workspace_id: workspaceId, asset_id: assetId, version_id: versionId, type, actor_role: actor, data: sql.json(data as never), created_at: at });
+
+  for (const a of SEED) {
+    const assetId = randomUUID();
+    assets.push({
+      id: assetId,
+      workspace_id: workspaceId,
+      ref: a.ref,
+      title: a.title,
+      affiliate_id: a.affiliate,
+      offer_id: a.offer,
+      placement: a.placement,
+      planned_date: a.plannedDate,
+      created_at: ago(a.versions[0].hoursAgo),
+    });
     let number = 0;
     for (const v of a.versions) {
       number++;
+      const versionId = randomUUID();
       const fp = fingerprint(v.body);
-      const [version] = await sql`
-        insert into versions (asset_id, number, body, fingerprint, note, created_at)
-        values (${asset.id}, ${number}, ${v.body}, ${fp}, ${v.note}, ${ago(v.hoursAgo)})
-        returning id
-      `;
-      await sql`
-        insert into events (workspace_id, asset_id, version_id, type, actor_role, data, created_at)
-        values (${workspaceId}, ${asset.id}, ${version.id}, ${number === 1 ? "submitted" : "resubmitted"},
-                'marketer', ${sql.json({ version: number })}, ${ago(v.hoursAgo)})
-      `;
+      versions.push({ id: versionId, asset_id: assetId, number, body: v.body, fingerprint: fp, note: v.note, created_at: ago(v.hoursAgo) });
+      event(assetId, versionId, number === 1 ? "submitted" : "resubmitted", "marketer", { version: number }, ago(v.hoursAgo));
       if (v.decision) {
         const d = v.decision;
-        const [decision] = await sql`
-          insert into decisions
-            (version_id, kind, fingerprint, offer_revision_id, planned_date, placement, reviewer, created_at)
-          values (${version.id}, ${d.kind}, ${fp}, ${d.revisionId}, ${d.plannedDate ?? a.plannedDate},
-                  ${a.placement}, ${DEMO_REVIEWER}, ${ago(d.hoursAgo)})
-          returning id
-        `;
+        const decisionId = randomUUID();
+        decisions.push({
+          id: decisionId,
+          version_id: versionId,
+          kind: d.kind,
+          fingerprint: fp,
+          offer_revision_id: d.revisionId,
+          planned_date: d.plannedDate ?? a.plannedDate,
+          placement: a.placement,
+          reviewer: DEMO_REVIEWER,
+          created_at: ago(d.hoursAgo),
+        });
         if (d.comment) {
-          await sql`
-            insert into comments (version_id, decision_id, anchor_text, body, author_role, created_at)
-            values (${version.id}, ${decision.id}, ${d.comment.anchor}, ${d.comment.body}, 'reviewer', ${ago(d.hoursAgo)})
-          `;
+          comments.push({
+            version_id: versionId,
+            decision_id: decisionId,
+            anchor_text: d.comment.anchor,
+            body: d.comment.body,
+            author_role: "reviewer",
+            created_at: ago(d.hoursAgo),
+          });
         }
-        await sql`
-          insert into events (workspace_id, asset_id, version_id, type, actor_role, data, created_at)
-          values (${workspaceId}, ${asset.id}, ${version.id},
-                  ${d.kind === "approve" ? "approved" : "changes_requested"}, 'reviewer',
-                  ${sql.json({ version: number })}, ${ago(d.hoursAgo)})
-        `;
+        event(assetId, versionId, d.kind === "approve" ? "approved" : "changes_requested", "reviewer", { version: number }, ago(d.hoursAgo));
       }
     }
     if (a.rescheduled) {
-      await sql`
-        insert into events (workspace_id, asset_id, type, actor_role, data, created_at)
-        values (${workspaceId}, ${asset.id}, 'rescheduled', 'marketer',
-                ${sql.json({ from: a.rescheduled.from, to: a.plannedDate })}, ${ago(a.rescheduled.hoursAgo)})
-      `;
+      event(assetId, null, "rescheduled", "marketer", { from: a.rescheduled.from, to: a.plannedDate }, ago(a.rescheduled.hoursAgo));
     }
-  }));
+  }
+
+  // In this order: each table's rows point at rows of the tables before it.
+  await sql`insert into assets ${sql(assets)}`;
+  await sql`insert into versions ${sql(versions)}`;
+  await sql`insert into decisions ${sql(decisions)}`;
+  if (comments.length) await sql`insert into comments ${sql(comments)}`;
+  await sql`insert into events ${sql(events)}`;
 }
 
 /** Puts one workspace back to the seeded demo: its ads, its history, and any offer revisions added in it. */
