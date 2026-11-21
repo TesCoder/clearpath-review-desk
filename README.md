@@ -269,31 +269,27 @@ Next.js (App Router) on Netlify, Postgres on Neon, Tailwind.
 ```mermaid
 flowchart LR
   B["Browser<br/>Marketer and Reviewer views<br/>per-visitor workspace cookie"]
+  LLM["Anthropic API: Claude<br/>suggests only, no tools"]
   subgraph N["Netlify: one Next.js app"]
     P["proxy.ts<br/>workspace cookie, content security policy"]
+    API["Routes for the AI read<br/>/api/ai-review, /api/wording-check"]
+    AI["AI claim finder<br/>ai/review.ts, ai/store.ts"]
     PG["Pages (read)<br/>status worked out on every load"]
     SA["Server actions (write)<br/>actions.ts: lock the ad, check, record"]
-    API["Routes for the AI read<br/>/api/ai-review, /api/wording-check"]
-    CC["Code checks<br/>checks.ts, injection.ts"]
-    ST["Status and decision rules<br/>status.ts, offers.ts"]
-    AI["AI claim finder<br/>ai/review.ts, ai/store.ts"]
+    RULES["Rules in code<br/>checks.ts, injection.ts: numbers and hidden text<br/>status.ts, offers.ts: does an approval still count"]
   end
   DB[("Neon Postgres<br/>offers and revisions, ads, versions,<br/>decisions, events, AI results")]
-  LLM["Anthropic API: Claude<br/>suggests only, no tools"]
   B --> P
+  P --> API --> AI
+  AI --> LLM
   P --> PG
   P --> SA
-  P --> API
-  PG --> CC
-  PG --> ST
-  PG --> DB
-  SA --> ST
-  SA --> CC
-  SA --> DB
-  API --> AI
-  AI --> LLM
-  AI -- "every quote and claim checked" --> CC
+  AI -- "every quote and claim checked" --> RULES
+  PG --> RULES
+  SA --> RULES
   AI --> DB
+  PG --> DB
+  SA --> DB
 ```
 
 Code decides the two things that must be exact: whether a number matches the offer, and whether an approval still counts. The model only suggests, in its own request, and what it returns is checked by code before anything is shown.
