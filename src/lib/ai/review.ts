@@ -206,7 +206,6 @@ export function finalizeReview(
   // "APR" on the next), is not credited. Say that, and keep "did not report"
   // for a claim the model left out.
   const acrossLine = (c: { start: number; quote: string }) =>
-    c.quote.includes("\n") ||
     findings.some((f) => (f.kind === "rate" || f.kind === "fee") && f.quote.includes("\n") && f.start <= c.start && f.end > c.start);
   const wrapped = missed.filter(acrossLine).map((c) => c.quote);
   const unreported = missed.filter((c) => !acrossLine(c)).map((c) => c.quote);

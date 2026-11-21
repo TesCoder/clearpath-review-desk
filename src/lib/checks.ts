@@ -3,12 +3,13 @@
 // What this file decides: whether a claim in ad copy "matches" the offer,
 // "does not match", or "needs the reviewer".
 //
-// It has been corrected thirteen times, each time after a test or a review found
+// It has been corrected fifteen times, each time after a test or a review found
 // a misread. After the second, the approach changed: instead of teaching the
 // code more wording, it reads a short list of exact forms and holds
 // everything else open for a person. Rounds 3 to 9 each made it say less;
 // round 10 undid a side effect of round 8, rounds 11 and 12 added no rule, and
-// round 13 took half of one away.
+// round 13 took half of one away. Round 14 only adds holds. Round 15 closed
+// what a sixth sweep found, in ordinary wording and in rates written in words.
 //   1. A manual test of the submit form: a rate written in words was read as
 //      nothing to compare. Added percentages written out in words.
 //   2. An independent review: ranges, unusual digits and percent signs, and
@@ -99,6 +100,32 @@
 //      still holds the whole expression; a number AFTER it is held by itself
 //      and the figure stays. The reason this is safe is in the comment at
 //      the join: such a figure can never be a match.
+//  14. A sixth sweep found a claim that got no flag at all: "No fees" with a
+//      footnote digit typed against it ("No fees\u00B9"), or wrapped in
+//      underscores. The patterns that read a claim end at a word boundary,
+//      and "fees1" is not the word "fees". The patterns that decide whether a
+//      line MENTIONS a rate or a fee now ignore a digit or an underscore
+//      against the word, so such a line is held in amber and quoted. This
+//      can only add a hold. The claim itself is still not read: "6.99%
+//      APR\u00B9" is held, not flagged red. The README states that, with
+//      two more cases the same sweep found where a wrong rate is held, not
+//      flagged: the word "interest" on the line, and a fee word just before
+//      the rate.
+//  15. The same sweep, on the approver's word to fix what could be fixed.
+//      (a) A footnote digit typed against "APR" or "fee" ("6.99% APR\u00B9")
+//      no longer stops the word being read: these words now end where their
+//      letters end. The digit is then a number after the figure, held by
+//      itself (round 13). (b) "<figure> APR" says the figure is an APR even
+//      when a fee word is nearer ("2% origination fee, 6.99% APR"), unless
+//      the figure names the origination fee. (c) On a line that says
+//      "interest", the low end of a range is an APR when "APR" follows the
+//      high end ("Low interest rates from 6.99% to 35.99% APR"). (d) A
+//      figure written in words sits on one line: split across a blank line,
+//      it looked as if nothing followed it and earned a one-click edit.
+//      (e) The guard against "one hundred twelve percent" reads inside its
+//      own statement: a heading "Option one" above a blank line had made
+//      "Six percent ... APR" below it disappear, with the page left green.
+//      And a figure that guard skips now always has its line held.
 //      What still reads across a line break, on purpose: whether a claim
 //      says nothing more, and the lead-in before a rate ("from", "up to"),
 //      both within one statement; and a figure whose "%" or "percent" is on
@@ -337,17 +364,20 @@ const PERCENT = /(?<![\d.,])(\d{1,3}(?:\.\d{1,3})?)\s?(?:%|percent\b|per cent\b)
 const MINUS_BEFORE = /(?:^|[^\d%a-z])[-\u2212\u2013]$/;
 // A figure is a rate only next to these words. "Interest" alone is not enough
 // ("cut your interest costs by 30%" is not an APR): it is held for the reviewer.
-const RATE_WORDS = /\b(?:aprs?|annual percentage rates?|rates?)\b/g;
-const FEE_WORDS = /\b(?:origination|fees?)\b/g;
+// These words end where the letters end, not at a "word boundary": a footnote
+// mark typed against the word ("APR\u00B9", read as "apr1") leaves it the same
+// word. The digit is then read like any number after a figure: held by itself.
+const RATE_WORDS = /\b(?:aprs?|annual percentage rates?|rates?)(?![a-z])/g;
+const FEE_WORDS = /\b(?:origination|fees?)(?![a-z])/g;
 // Words that make a sentence one the reviewer should read when no figure in it was read.
-const TOPIC_WORDS = /\b(?:aprs?|annual percentage rates?|rates?|interest|origination|fees?|percent|per cent)\b|[%\u066A\uFE6A]/g;
+const TOPIC_WORDS = /\b(?:aprs?|annual percentage rates?|rates?|interest|origination|fees?|percent|per cent)(?![a-z])|[%\u066A\uFE6A]/g;
 const ANY_NUMBER = /(?:(?<![\d.,])[.,](?=\d))?\d+(?:[.,]\d+)*/g;
 // "No fee" about the loan itself. "No late fee" or "no prepayment fee" are
 // different claims and are not matched here.
 // The phrase sits on one line: "$0" at the end of one table row and "Origination fee"
 // at the start of the next are two rows, not a claim of no fee.
 const NO_FEE =
-  /(?:\b(?:no|zero|without(?: an| any)?)|\$[^\S\n]?0|\b0)[^\S\n]+(?:(?:origination|upfront|up-front|lender|loan)[^\S\n]+)?fees?\b/g;
+  /(?:\b(?:no|zero|without(?: an| any)?)|\$[^\S\n]?0|\b0)[^\S\n]+(?:(?:origination|upfront|up-front|lender|loan)[^\S\n]+)?fees?(?![a-z])/g;
 
 // A percentage written out in words: "six point nine nine percent",
 // "twenty-one percent". An exact, well-defined form, so code reads it. Looser
@@ -358,8 +388,12 @@ const DIGIT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seve
 // The units are listed longest first ("nineteen" before "nine"), so the
 // pattern never stops at a shorter word that begins a longer one.
 const WORD_PERCENT = new RegExp(
-  `\\b((?:${TENS.join("|")})(?:[\\s-](?:${UNITS.slice(1, 10).join("|")}))?|${[...UNITS].reverse().join("|")})` +
-    `(?:\\s+point((?:\\s+(?:${DIGIT_WORDS.join("|")}|oh))+))?\\s+(?:percent|per cent)\\b`,
+  // The words of one figure sit on one line. Across a line break, and above
+  // all across a blank line, "what follows the figure" was measured in the
+  // statement the figure started in, and a figure that ran on into the next
+  // paragraph looked as if nothing followed it.
+  `\\b((?:${TENS.join("|")})(?:(?:[^\\S\\n]|-)(?:${UNITS.slice(1, 10).join("|")}))?|${[...UNITS].reverse().join("|")})` +
+    `(?:[^\\S\\n]+point((?:[^\\S\\n]+(?:${DIGIT_WORDS.join("|")}|oh))+))?[^\\S\\n]+(?:percent|per cent)\\b`,
   "g",
 );
 
@@ -458,7 +492,7 @@ function nearest(re: RegExp, sentence: string, at: number): number {
 
 /** True for "<figure> origination fee" and "origination fee of <figure>". */
 function namesOriginationFee(lower: string, s: number, e: number): boolean {
-  return /^\s+origination\s+fees?\b/.test(lower.slice(e)) || /\borigination\s+fees?\s+(?:(?:of|is|at)\s+)?$/.test(lower.slice(0, s));
+  return /^\s+origination\s+fees?(?![a-z])/.test(lower.slice(e)) || /\borigination\s+fees?\s+(?:(?:of|is|at)\s+)?$/.test(lower.slice(0, s));
 }
 
 /** A sentence or phrase without its outer spaces and closing punctuation. */
@@ -481,7 +515,7 @@ const FEE_LEADS = ["", "a", "an", "the", "just a", "only a", "there is a", "ther
  * the sentence can change who pays it or when.
  */
 function saysOnlyTheFee(sentence: string, s: number, e: number): boolean {
-  const after = /^\s+origination\s+fees?\b/.exec(sentence.slice(e));
+  const after = /^\s+origination\s+fees?(?![a-z])/.exec(sentence.slice(e));
   const tail = bare(sentence.slice(after ? e + after[0].length : e));
   if (!["", "applies", "is charged"].includes(tail)) return false;
   const before = sentence.slice(0, s).trim();
@@ -527,10 +561,17 @@ export function findClaims(text: string): Claim[] {
     if (MINUS_BEFORE.test(lower.slice(Math.max(0, m.index - 2), m.index))) continue;
     numbers.push({ s: m.index, e: m.index + m[0].length, value: Number(m[1]) });
   }
+  const skippedWritten: number[] = [];
   WORD_PERCENT.lastIndex = 0;
   for (let m = WORD_PERCENT.exec(lower); m; m = WORD_PERCENT.exec(lower)) {
-    // Part of a larger written-out number: not read. Its sentence is held below.
-    if (LARGER_NUMBER_BEFORE.test(lower.slice(0, m.index))) continue;
+    // Part of a larger written-out number: not read, and its line is held
+    // below whatever else is on it. The words before it are read inside its
+    // own statement: "Option one" as a heading above a blank line is not the
+    // start of "one ... six percent".
+    if (LARGER_NUMBER_BEFORE.test(lower.slice(sentenceBounds(lower, m.index)[0], m.index))) {
+      skippedWritten.push(m.index);
+      continue;
+    }
     numbers.push({ s: m.index, e: m.index + m[0].length, value: wordsToNumber(m[1], m[2]) });
   }
 
@@ -561,11 +602,25 @@ export function findClaims(text: string): Claim[] {
     // Include a directly following "APR" in the quoted words, on the same
     // line only. "Interest rate: 7.00%" above a line "APR: 8.99%" must not
     // borrow that line's label and become a 7.00% APR.
-    const tail = /^[^\S\n]?apr\b/.exec(lower.slice(e));
+    const tail = /^[^\S\n]?apr(?![a-z])/.exec(lower.slice(e));
+    // "<figure> APR" says what the figure is. A fee word that happens to be
+    // nearer ("2% origination fee, 6.99% APR") does not make it a fee: it
+    // did not name the origination fee, so it was held as unread, and a
+    // wrong rate lost its red flag. A figure that does name the origination
+    // fee ("Origination fee 2% APR 8.99%") stays a fee. So does a figure
+    // that a fee label points straight at, with only a space, a colon or
+    // "of" between ("Late fee 5% APR 8.99%", a table row run together):
+    // there "APR" starts the next cell.
+    const labelledAsFee = /(?:origination|fees?)(?![a-z])[\s:]*(?:of\s+)?$/.test(line.slice(0, s - ls));
+    if (kind === "unclassified" && tail && !labelledAsFee) kind = "apr";
+    // The same "APR" after the far end of a range covers both ends:
+    // "6.99% to 35.99% APR".
+    const rangeToApr = /^[^\S\n]*(?:-|\u2013|\u2014|to)[^\S\n]*\d{1,3}(?:\.\d{1,3})?[^\S\n]?%[^\S\n]?apr(?![a-z])/.test(lower.slice(e));
     // "Interest rate 6.99%, APR 8.99%": the offer sheet has no separate
     // interest rate. In a sentence about interest, a figure is called an APR
-    // only when "APR" directly follows it. Otherwise it is held.
-    if (kind === "apr" && !tail && /\binterest\b/.test(line)) kind = "unclassified";
+    // only when "APR" directly follows it, or follows the range it begins
+    // ("Low interest rates from 6.99% to 35.99% APR"). Otherwise it is held.
+    if (kind === "apr" && !tail && !rangeToApr && /\binterest\b/.test(line)) kind = "unclassified";
     if (kind === "apr" && tail) e += tail[0].length;
     const claim: Claim = { kind, value, ...toOriginal(s, e) };
     if (kind === "fee" && !asksQuestion(lower, se) && saysOnlyTheFee(sentence, n.s - ss, n.e - ss)) claim.plain = true;
@@ -645,7 +700,7 @@ export function findClaims(text: string): Claim[] {
     const [ss, se] = lineBounds(lower, s);
     TOPIC_WORDS.lastIndex = 0;
     if (!TOPIC_WORDS.test(lower.slice(ss, se))) continue;
-    const sign = /^\s{0,2}[%\u066A\uFE6A]/.exec(lower.slice(e));
+    const sign = /^[^\S\n]{0,2}[%\u066A\uFE6A]/.exec(lower.slice(e));
     if (sign) e += sign[0].length;
     for (let i = claims.length - 1; i >= 0; i--) {
       const c = claims[i];
@@ -671,8 +726,12 @@ export function findClaims(text: string): Claim[] {
   const spansOf = (kinds: ClaimKind[]) =>
     claims.filter((c) => kinds.includes(c.kind)).map((c) => [c.start, c.end] as const);
   const topics: Array<[RegExp, ClaimKind[]]> = [
-    [/\b(?:aprs?|annual percentage rates?|rates?|interest)\b/, ["apr", "unclassified"]],
-    [/\b(?:origination|fees?)\b/, ["fee", "no_fee", "unclassified"]],
+    // The word may have a digit or an underscore typed against it: a footnote
+    // mark ("No fees\u00B9", which is read as "fees1") or emphasis ("_No fees_").
+    // To the patterns above that is not the word "fees", so the claim is not
+    // read. Here it still counts as a mention, so the line is held and shown.
+    [/(?<![a-z])(?:aprs?|annual percentage rates?|rates?|interest)(?![a-z])/, ["apr", "unclassified"]],
+    [/(?<![a-z])(?:origination|fees?)(?![a-z])/, ["fee", "no_fee", "unclassified"]],
   ];
   let from = 0;
   while (from < lower.length) {
@@ -690,6 +749,17 @@ export function findClaims(text: string): Claim[] {
       }
     }
     from = Math.max(se + 1, from + 1);
+  }
+
+  // (c) the line of a written-out figure that was skipped as part of a larger
+  //     number, even when another claim on the line was read. Otherwise "One
+  //     hundred six percent APR, then rates from 8.99% APR" showed only the
+  //     8.99%.
+  for (const at of skippedWritten) {
+    const [ss, se] = lineBounds(lower, at);
+    const lead = lower.slice(ss, se).length - lower.slice(ss, se).trimStart().length;
+    const held: Claim = { kind: "unclassified", value: null, heldSentence: true, ...toOriginal(ss + lead, se) };
+    if (!claims.some((c) => c.start === held.start && c.end === held.end)) claims.push(held);
   }
 
   return claims.sort((a, b) => a.start - b.start);

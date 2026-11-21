@@ -739,6 +739,46 @@ describe("a match depends on the shape of the sentence too (round 8)", () => {
     // A number before the figure still holds the whole expression: alone, the figure could be a match.
     expect(checks("Up to 5.99-35.99% APR").map((c) => [c.claim.quote, c.status])).toEqual([["5.99-35.99% APR", "needs_reviewer"]]);
     expect(greens("As low as 5 to 8.99% APR")).toBe(0);
+    // Round 14: a footnote digit or an underscore against "fees" does not make the line disappear.
+    for (const t of ["Personal loans with no fees\u00B9.", "No fees1.", "Zero fees\u00B9", "_No fees_"]) {
+      expect(checks(t).length, t).toBeGreaterThan(0);
+      expect(checks(t).some((c) => c.status === "ok"), t).toBe(false);
+    }
+    // An underscore before the word still stops the claim being read: the line is held, not flagged.
+    expect(checks("_No fees_").every((c) => c.status === "needs_reviewer")).toBe(true);
+    // Round 15: a footnote digit against "APR" or "fee" leaves the word a word, and the claim is read.
+    expect(reds("Personal loans from 6.99% APR\u00B9.")).toEqual(["6.99% APR"]);
+    expect(reds("A 3% origination fee\u00B9")).toEqual(["3%"]);
+    expect(reds("Personal loans with no fees\u00B9.")).toEqual(["no fees"]);
+    expect(edits("Personal loans from 6.99% APR\u00B9.") + edits("Personal loans with no fees\u00B9.")).toBe(0);
+    expect(greens("Rates from 8.99% APR\u00B9. A 2% origination fee\u00B2 applies.")).toBe(0);
+    // "<figure> APR" is an APR even when a fee word is nearer.
+    expect(reds("2% origination fee, 6.99% APR.")).toEqual(["6.99% APR"]);
+    expect(reds("Low fees, 6.99% APR.")).toEqual(["6.99% APR"]);
+    expect(reds("Origination fee 2% APR 8.99%")).toEqual([]);
+    for (const t of ["Late fee 5% APR 8.99%", "Late fee: 5% APR: 8.99%", "Late fee\t5%\tAPR\t8.99%"]) expect(reds(t), t).toEqual([]);
+    expect(reds("Loans with no late fee at 6.99% APR")).toEqual(["6.99% APR"]);
+    // On a line that says "interest", "APR" after a range covers both ends.
+    expect(reds("Low interest rates from 6.99% to 35.99% APR.")).toEqual(["6.99%"]);
+    expect(greens("Low interest rates from 8.99% to 35.99% APR.")).toBe(2);
+    expect(reds("Interest rate 6.99%, APR 8.99%.")).toEqual([]);
+    expect(reds("Low interest rates from 6.99% APR.")).toEqual(["6.99% APR"]);
+    // A heading that ends in a number word does not make a written-out rate below it disappear.
+    expect(reds("Option one\n\nSix percent introductory APR then rates from 8.99% APR.")).toEqual(["Six percent"]);
+    expect(reds("Six percent introductory APR then rates from 8.99% APR.")).toEqual(["Six percent"]);
+    // A larger written-out number is never read as its last words, and its line is always held.
+    const larger = checks("One hundred six percent introductory APR, then rates from 8.99% APR.");
+    expect(larger.some((c) => c.status === "needs_reviewer" && /hundred/i.test(c.claim.quote))).toBe(true);
+    // A rate written in words and split across a line is not read as one figure: no edit, no match.
+    for (const t of ["Rates from six\n\npercent APR 36 months", "Rates from six\n\npercent APR 36 months for returning borrowers only.", "APR 8.99% to thirty five point nine nine\n\npercent APR for renewals only."]) {
+      expect(edits(t), t).toBe(0);
+      expect(greens(t), t).toBe(0);
+    }
+    // Stated as limits in the README: these are held, not flagged red.
+    for (const t of ["Interest rate: 7.00% | APR: 6.99%", "Low interest loans, APR from 6.99%."]) {
+      expect(reds(t), t).toEqual([]);
+      expect(greens(t), t).toBe(0);
+    }
     // The cost, stated as a limit in the README: a wrong rate with a number just before it is amber, not red.
     for (const t of ["Rates from 1 6.99% APR", "2026 6.99% APR"]) {
       expect(reds(t), t).toEqual([]);
