@@ -117,7 +117,14 @@
 //      letters end. The digit is then a number after the figure, held by
 //      itself (round 13). (b) "<figure> APR" says the figure is an APR even
 //      when a fee word is nearer ("2% origination fee, 6.99% APR"), unless
-//      the figure names the origination fee. (c) On a line that says
+//      the figure names the origination fee. The same holds the other
+//      way: "<figure> origination fee" is a fee even with "APR" just before
+//      it, which ends a red false alarm on "Rates from 8.99% APR, 2%
+//      origination fee". Neither label names the figure before it when a
+//      number comes straight after the label: in a row of cells run
+//      together ("Origination fee - 2% APR - 8.99%") it is the label of the
+//      next cell. An independent old-against-new run on 111,000 generated
+//      texts found that row case before this was committed. (c) On a line that says
 //      "interest", the low end of a range is an APR when "APR" follows the
 //      high end ("Low interest rates from 6.99% to 35.99% APR"). (d) A
 //      figure written in words sits on one line: split across a blank line,
@@ -138,11 +145,8 @@
 // rates from 8.99% APR") and a qualifier before the figure ("Rates after the
 // introductory period are from 8.99% APR") still show the figure as a match.
 // No list of words closes that. The README says so, and the reviewer and the
-// AI read the sentence. Two red false alarms on true ads are also left as
-// they are and stated in the README: a fee straight after "APR" on one line
-// ("Rates from 8.99% APR, 2% origination fee": nearness is counted from the
-// start of the figure, so the fee is read as a 2.00% APR), and a fee whose
-// name wraps to the next line.
+// AI read the sentence. One red false alarm on a true ad is also left as it
+// is and stated in the README: a fee whose name wraps to the next line.
 //
 // The only forms this file reads as a figure (the approved forms):
 //   1. digits, an optional decimal part, at most one space, then "%",
@@ -592,6 +596,17 @@ export function findClaims(text: string): Claim[] {
     // The closer word decides. On a tie the figure is read as a rate: a wrong
     // rate is the costlier miss, and a rate out of range is always flagged.
     if (rate !== Infinity || fee !== Infinity) kind = fee < rate ? "fee" : "apr";
+    // A label straight after a figure names that figure: "2% origination fee"
+    // is a fee and "6.99% APR" is a rate, whichever word is nearer by count.
+    // The exception is a row of cells run together on one line, where the
+    // label belongs to the NEXT figure: "APR 8.99% Origination fee 2%",
+    // "Origination fee - 2% APR - 8.99%". There a number comes straight after
+    // the label, with a space, a colon, an equals sign, a dash or a lead-in
+    // word between. A footnote digit typed against the label is not that.
+    const startsNextCell = (after: string) =>
+      /^[\s:=|\-\u2013\u2014]+(?:(?:from|of|is|at|as low as|up to|starting at|starts at)\s+)?\d/.test(after);
+    const feeLabel = /^[^\S\n]+origination[^\S\n]+fees?(?![a-z])/.exec(line.slice(n.e - ls));
+    if (feeLabel && !startsNextCell(line.slice(n.e - ls + feeLabel[0].length))) kind = "fee";
     // The offer sheet states one fee, the origination fee. A fee figure is
     // compared with it only when the ad plainly names that fee. A prepayment,
     // late or unnamed fee is held for the reviewer, with no suggested edit:
@@ -612,7 +627,8 @@ export function findClaims(text: string): Claim[] {
     // "of" between ("Late fee 5% APR 8.99%", a table row run together):
     // there "APR" starts the next cell.
     const labelledAsFee = /(?:origination|fees?)(?![a-z])[\s:]*(?:of\s+)?$/.test(line.slice(0, s - ls));
-    if (kind === "unclassified" && tail && !labelledAsFee) kind = "apr";
+    const aprNamesThis = tail !== null && !startsNextCell(line.slice(e - ls + tail[0].length));
+    if (kind === "unclassified" && aprNamesThis && !labelledAsFee) kind = "apr";
     // The same "APR" after the far end of a range covers both ends:
     // "6.99% to 35.99% APR".
     const rangeToApr = /^[^\S\n]*(?:-|\u2013|\u2014|to)[^\S\n]*\d{1,3}(?:\.\d{1,3})?[^\S\n]?%[^\S\n]?apr(?![a-z])/.test(lower.slice(e));

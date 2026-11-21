@@ -815,8 +815,13 @@ describe("a match depends on the shape of the sentence too (round 8)", () => {
   });
 
   it("two red false alarms on true ads: stated as a limit in the README", () => {
-    // A fee straight after "APR" on the same line: nearness is counted from the start of the figure.
-    expect(checks("Rates from 8.99% APR, 2% origination fee.").some((c) => c.status === "mismatch" && /2\.00% APR/.test(c.message))).toBe(true);
+    // Round 15: "<figure> origination fee" is a fee even with "APR" just before it. It was a red false alarm.
+    expect(checks("Rates from 8.99% APR, 2% origination fee.").every((c) => c.status === "needs_reviewer")).toBe(true);
+    expect(checks("Rates from 8.99% APR, 3% origination fee.").some((c) => c.status === "mismatch" && /3\.00% fee/.test(c.message))).toBe(true);
+    // A row of cells run together: the label after a figure belongs to the next figure, so nothing true turns red.
+    for (const t of ["APR 8.99% Origination fee 2%", "Origination fee - 2.00% APR - 8.99%", "Origination fee* 2% APR 8.99%", "Origination fee=2% APR=8.99%", "Origination fee, 2% APR from 8.99%", "One-time fee (origination) 2% APR 8.99%"]) {
+      expect(checks(t).filter((c) => c.status === "mismatch"), t).toHaveLength(0);
+    }
     expect(checks("Rates from 8.99% APR. A 2% origination fee applies.").every((c) => c.status === "ok")).toBe(true);
     // A fee whose name wraps to the next line is read on its own line, where only "rates" is.
     expect(checks("Enjoy low rates and a 2%\norigination fee.").some((c) => c.status === "mismatch" && /2\.00% APR/.test(c.message))).toBe(true);
