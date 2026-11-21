@@ -128,6 +128,19 @@ export function reviewRevision(
           detail: `The ad now says "${fresh[0].claim.quote}", which matches the offer. That is all the ${label} check can confirm. Confirm the rest of your request.`,
         };
       }
+      // A new figure of the same kind that the check held (inside the range,
+      // but not the offer's lowest or highest rate). It is shown beside what
+      // the drafted request asked for, and the reviewer confirms.
+      const freshHeld = figureGone
+        ? sameFamily.filter((c) => c.status === "needs_reviewer" && c.claim.value !== null && !seenBefore.has(signature(c)))
+        : [];
+      if (freshHeld.length && fromDraft && asked !== null) {
+        return {
+          request,
+          outcome: "changed",
+          detail: `${arrow(freshHeld[0])} The request asked for ${asked}%. The new figure is inside the offer's range, but it is not the one requested. Confirm it answers your request.`,
+        };
+      }
       if (!stillThere && onlyRemovals && figureGone) {
         const fact = "The claim was removed, and nothing was added in its place.";
         return fromDraft

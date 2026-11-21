@@ -13,6 +13,9 @@ export type RevisionTerms = OfferTerms & {
 
 export const PLACEMENTS = ["Comparison site listing", "Blog article", "Email newsletter", "Social post"] as const;
 
+/** The day after a date, as YYYY-MM-DD. */
+export const dayAfter = (isoDate: string) => shiftDay(isoDate, 1);
+
 /** A date moved by a number of days, as YYYY-MM-DD. */
 function shiftDay(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
@@ -41,7 +44,12 @@ export function withTimeline<T extends OfferTerms & { offerId: string; revision:
     if (!next) return { ...r, replacedBy: null };
     const cut = shiftDay(next.effectiveFrom, -1);
     const ends = r.effectiveTo === null || cut < r.effectiveTo;
-    return { ...r, effectiveTo: ends ? cut : r.effectiveTo, replacedBy: ends ? next.revision : null };
+    // Several revisions can start on the day this one ends. The one in force
+    // from that day is the highest-numbered of them: name that one.
+    const successor = Math.max(
+      ...revisions.filter((o) => o.offerId === r.offerId && o.effectiveFrom === next.effectiveFrom).map((o) => o.revision),
+    );
+    return { ...r, effectiveTo: ends ? cut : r.effectiveTo, replacedBy: ends ? successor : null };
   });
 }
 

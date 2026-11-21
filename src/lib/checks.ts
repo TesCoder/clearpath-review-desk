@@ -3,10 +3,10 @@
 // What this file decides: whether a claim in ad copy "matches" the offer,
 // "does not match", or "needs the reviewer".
 //
-// It has been corrected five times, each time after a test or a review found
+// It has been corrected six times, each time after a test or a review found
 // a misread. After the second, the approach changed: instead of teaching the
 // code more wording, it reads a short list of exact forms and holds
-// everything else open for a person. Rounds 3 to 5 each made it read less.
+// everything else open for a person. Rounds 3 to 6 each made it say less.
 //   1. A manual test of the submit form: a rate written in words was read as
 //      nothing to compare. Added percentages written out in words.
 //   2. An independent review: ranges, unusual digits and percent signs, and
@@ -22,6 +22,14 @@
 //      as its lowest rate; a stated maximum or minimum that differs from the
 //      offer's is flagged or held, never matched; and in a sentence about
 //      interest only "<figure> APR" is an APR.
+//   6. Two reviews found green results on wrong claims: ".12%" read as 12%,
+//      "from 8.99% to 15.99% APR" passed because 15.99% is inside the range,
+//      and "No fees for late payments" given an edit that wrote a false
+//      sentence. The rule became simpler instead of longer. A rate is a
+//      match only when it EQUALS the offer's lowest or highest APR; any
+//      other rate inside the range is held. A figure is read only as a whole
+//      number. A fee is a match, and an edit is offered, only when the
+//      sentence says nothing more about it.
 //
 // The only forms this file reads as a figure (the approved forms):
 //   1. digits, an optional decimal part, at most one space, then "%",
@@ -71,6 +79,14 @@ export type Claim = {
   end: number;
   /** Set when a whole sentence is held because it mentions a rate or a fee with nothing the check could read. */
   heldSentence?: true;
+  /**
+   * For a fee or a "no fee" claim: its sentence says nothing more about the
+   * fee than the claim itself ("A 2% origination fee applies.", "No
+   * origination fee."). Only then is a fee called a match or an edit offered.
+   * "No fees for late payments" and "The 2% origination fee is waived" are
+   * not plain: the rest of the sentence changes what the figure means.
+   */
+  plain?: true;
   /** The figure directly follows "from", "as low as", "starting at" and the like: the ad states it as its lowest rate. */
   statesMinimum?: true;
   /** A word just before the figure says which end of the range it is. */
@@ -83,7 +99,6 @@ export type Check = {
   claim: Claim;
   status: CheckStatus;
   message: string;
-  /** The value on the offer sheet the claim was compared with, as text. */
   /** A replacement the marketer could use, when one is obvious. */
   suggestion: string | null;
 };
@@ -97,6 +112,14 @@ export type HiddenTextFinding = {
 // Characters a reader cannot see but a model, or a pattern, still reads.
 const INVISIBLE =
   /[­͏؜ᅟᅠ឴឵᠋-᠎​-‏⁠-⁤⁪-⁯ㅤ︀-️﻿ﾠ]/u;
+// The list above names the ones seen in practice. A list cannot be complete, so
+// hidden characters are also recognized by what Unicode says they are: ones a
+// renderer ignores by default (variation selectors among them), control and
+// format characters, private-use and unassigned code points, and the line and
+// paragraph separators. Line breaks and tabs are ordinary text.
+const HIDDEN_BY_KIND = /[\p{Default_Ignorable_Code_Point}\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}]/u;
+const ORDINARY_CONTROL = /[\n\r\t]/;
+const isInvisible = (ch: string) => INVISIBLE.test(ch) || (HIDDEN_BY_KIND.test(ch) && !ORDINARY_CONTROL.test(ch));
 const DIRECTION = /[‪-‮⁦-⁩]/u;
 const TAG = /[\u{E0000}-\u{E007F}]/u;
 const NON_LATIN_LETTER = /[\p{Script=Cyrillic}\p{Script=Greek}]/u;
@@ -104,7 +127,7 @@ const LATIN_LETTER = /\p{Script=Latin}/u;
 const DECIMAL_DIGIT = /\p{Nd}/u;
 
 function isHidden(ch: string): boolean {
-  return INVISIBLE.test(ch) || DIRECTION.test(ch) || TAG.test(ch);
+  return isInvisible(ch) || DIRECTION.test(ch) || TAG.test(ch);
 }
 
 /** The numeric value of any Unicode decimal digit, or null. */
@@ -161,7 +184,7 @@ export function findHiddenText(text: string): HiddenTextFinding[] {
   for (const ch of text) {
     if (TAG.test(ch)) tag++;
     else if (DIRECTION.test(ch)) direction++;
-    else if (INVISIBLE.test(ch)) invisible++;
+    else if (isInvisible(ch)) invisible++;
     else if (NON_LATIN_LETTER.test(ch)) nonLatin++;
     else if (LATIN_LETTER.test(ch)) latin++;
     else if (DECIMAL_DIGIT.test(ch) && !(ch >= "0" && ch <= "9")) foreignDigit++;
@@ -207,14 +230,17 @@ export function findHiddenText(text: string): HiddenTextFinding[] {
   return out;
 }
 
-const PERCENT = /(\d{1,3}(?:[.,]\d{1,3})?)\s?(?:%|percent\b|per cent\b)/g;
+// A figure is read only as a whole number: nothing numeric may sit directly
+// before it. ".12%" is not 12%, and the "012.99%" inside "1012.99%" is not
+// 12.99%. A number that fails this is not dropped: it is held below.
+const PERCENT = /(?<![\d.,])(\d{1,3}(?:[.,]\d{1,3})?)\s?(?:%|percent\b|per cent\b)/g;
 // A figure is a rate only next to these words. "Interest" alone is not enough
 // ("cut your interest costs by 30%" is not an APR): it is held for the reviewer.
 const RATE_WORDS = /\b(?:aprs?|annual percentage rates?|rates?)\b/g;
 const FEE_WORDS = /\b(?:origination|fees?)\b/g;
 // Words that make a sentence one the reviewer should read when no figure in it was read.
 const TOPIC_WORDS = /\b(?:aprs?|annual percentage rates?|rates?|interest|origination|fees?|percent|per cent)\b|[%\u066A\uFE6A]/g;
-const ANY_NUMBER = /\d+(?:[.,]\d+)*/g;
+const ANY_NUMBER = /(?:(?<![\d.,])[.,](?=\d))?\d+(?:[.,]\d+)*/g;
 // "No fee" about the loan itself. "No late fee" or "no prepayment fee" are
 // different claims and are not matched here.
 const NO_FEE =
@@ -232,6 +258,12 @@ const WORD_PERCENT = new RegExp(
   `\\b((?:${TENS.join("|")})(?:[\\s-](?:${UNITS.slice(1, 10).join("|")}))?|${[...UNITS].reverse().join("|")})` +
     `(?:\\s+point((?:\\s+(?:${DIGIT_WORDS.join("|")}|oh))+))?\\s+(?:percent|per cent)\\b`,
   "g",
+);
+
+// Words that make a written-out number part of a larger one: "one hundred
+// twelve percent" is not twelve percent.
+const LARGER_NUMBER_BEFORE = new RegExp(
+  `\\b(?:hundred|thousand|million|point|${[...UNITS, ...TENS].join("|")})(?:\\s+and)?[\\s-]+$`,
 );
 
 function wordsToNumber(whole: string, decimals: string | undefined): number {
@@ -284,6 +316,23 @@ function namesOriginationFee(lower: string, s: number, e: number): boolean {
   return /^\s+origination\s+fees?\b/.test(lower.slice(e)) || /\borigination\s+fees?\s+(?:(?:of|is|at)\s+)?$/.test(lower.slice(0, s));
 }
 
+/** A sentence or phrase without its outer spaces and closing punctuation. */
+const bare = (t: string) => t.trim().replace(/[.!?,;:]+$/, "").trim();
+
+/**
+ * True when a sentence states the origination fee and nothing else about it.
+ * After the fee phrase there may be nothing, or one of three plain endings.
+ * Before the figure there may be no word that negates it. Anything else
+ * ("... applies for late payments", "... is waived for new customers", "no
+ * 2% origination fee") is not read as a statement of the fee.
+ */
+function saysOnlyTheFee(sentence: string, s: number, e: number): boolean {
+  const after = /^\s+origination\s+fees?\b/.exec(sentence.slice(e));
+  const tail = bare(sentence.slice(after ? e + after[0].length : e));
+  if (!["", "applies", "may apply", "is charged"].includes(tail)) return false;
+  return !/\b(?:no|not|never|without|waive[sd]?|waiving)\b/.test(sentence.slice(0, s));
+}
+
 export function findClaims(text: string): Claim[] {
   const { norm: lower, map } = normalizeWithMap(text);
   const claims: Claim[] = [];
@@ -308,7 +357,10 @@ export function findClaims(text: string): Claim[] {
   for (let m = NO_FEE.exec(lower); m; m = NO_FEE.exec(lower)) {
     noFeeSpans.push([m.index, m.index + m[0].length]);
     read.push([m.index, m.index + m[0].length]);
-    claims.push({ kind: "no_fee", value: 0, ...toOriginal(m.index, m.index + m[0].length) });
+    const noFee: Claim = { kind: "no_fee", value: 0, ...toOriginal(m.index, m.index + m[0].length) };
+    const [ss, se] = sentenceBounds(lower, m.index);
+    if (bare(lower.slice(ss, se)) === bare(m[0])) noFee.plain = true;
+    claims.push(noFee);
   }
 
   // Percentages in digits, then percentages written out in words.
@@ -319,6 +371,8 @@ export function findClaims(text: string): Claim[] {
   }
   WORD_PERCENT.lastIndex = 0;
   for (let m = WORD_PERCENT.exec(lower); m; m = WORD_PERCENT.exec(lower)) {
+    // Part of a larger written-out number: not read. Its sentence is held below.
+    if (LARGER_NUMBER_BEFORE.test(lower.slice(0, m.index))) continue;
     numbers.push({ s: m.index, e: m.index + m[0].length, value: wordsToNumber(m[1], m[2]) });
   }
 
@@ -348,6 +402,7 @@ export function findClaims(text: string): Claim[] {
     if (kind === "apr" && !tail && /\binterest\b/.test(sentence)) kind = "unclassified";
     if (kind === "apr" && tail) e += tail[0].length;
     const claim: Claim = { kind, value, ...toOriginal(s, e) };
+    if (kind === "fee" && saysOnlyTheFee(sentence, n.s - ss, n.e - ss)) claim.plain = true;
     if (kind === "apr") {
       // What the words just before the figure say it is. Used only to hold a
       // figure back or to withhold a suggested edit, never to call a match.
@@ -355,6 +410,9 @@ export function findClaims(text: string): Claim[] {
       if (/(?:\bfrom|\bas low as|\bstarting at|\bstarting from|\bstart at|\bstarts at)\s+$/.test(lead)) claim.statesMinimum = true;
       if (/\b(?:maximum|max|highest|up to|no more than|at most|capped at)\b[^.!?]*$/.test(lead)) claim.endpoint = "maximum";
       else if (/\b(?:minimum|lowest|as low as)\b[^.!?]*$/.test(lead)) claim.endpoint = "minimum";
+      // The same label written after the figure: "12.99% APR maximum".
+      const label = /^\s*(maximum|max|minimum|min)\b/.exec(lower.slice(e));
+      if (label && !claim.endpoint) claim.endpoint = label[1].startsWith("max") ? "maximum" : "minimum";
     }
     claims.push(claim);
     figureSpans.set(claim, [n.s, e]);
@@ -474,7 +532,10 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         suggestion: null,
       };
     }
-    if (claim.endpoint === "minimum" && claim.value !== terms.aprMin) {
+    // The ad states the figure as its lowest rate, by a label ("lowest",
+    // "minimum") or a lead-in ("from", "as low as").
+    const saysLowest = claim.endpoint === "minimum" || claim.statesMinimum === true;
+    if (saysLowest && claim.value !== terms.aprMin) {
       return {
         claim,
         status: "needs_reviewer",
@@ -482,10 +543,19 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         suggestion: null,
       };
     }
+    // A match means the figure equals one end of the offer's range. Being
+    // somewhere inside the range proves nothing about the claim: "from 8.99%
+    // to 15.99% APR" is false when the highest APR is 35.99%.
+    if (claim.value === terms.aprMin && claim.endpoint !== "maximum") {
+      return { claim, status: "ok", message: `${percent(claim.value)} APR is the lowest APR on the offer (${range}).`, suggestion: null };
+    }
+    if (claim.value === terms.aprMax && !saysLowest) {
+      return { claim, status: "ok", message: `${percent(claim.value)} APR is the highest APR on the offer (${range}).`, suggestion: null };
+    }
     return {
       claim,
-      status: "ok",
-      message: `${percent(claim.value)} APR is within the offer's range of ${percent(terms.aprMin)} to ${percent(terms.aprMax)}.`,
+      status: "needs_reviewer",
+      message: `The ad says ${percent(claim.value)} APR. That is inside the offer's range of ${range}, but it is not the lowest or the highest rate on the offer. Please read the claim.`,
       suggestion: null,
     };
   }
@@ -503,7 +573,16 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         claim,
         status: "mismatch",
         message: `The ad says a ${percent(claim.value)} fee. The ${terms.campaign} offer ${since} lists a ${percent(terms.feePct)} origination fee.`,
-        suggestion: withNumber(claim, String(terms.feePct)),
+        // Swapping the figure is safe only when the sentence says nothing else about the fee.
+        suggestion: claim.plain ? withNumber(claim, String(terms.feePct)) : null,
+      };
+    }
+    if (!claim.plain) {
+      return {
+        claim,
+        status: "needs_reviewer",
+        message: `The ad states a ${percent(claim.value)} origination fee, which is the figure on the offer, but its sentence says more about the fee than that. Please read it.`,
+        suggestion: null,
       };
     }
     return {
@@ -519,7 +598,9 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         claim,
         status: "mismatch",
         message: `The ad says "${claim.quote}". The ${terms.campaign} offer ${since} lists a ${percent(terms.feePct)} origination fee.`,
-        suggestion: `A ${String(terms.feePct)}% origination fee applies`,
+        // "No fees for late payments" is not a statement about the origination
+        // fee alone: replacing its first words would write a new false sentence.
+        suggestion: claim.plain ? `A ${String(terms.feePct)}% origination fee applies` : null,
       };
     }
     return {

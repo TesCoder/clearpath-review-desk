@@ -96,6 +96,9 @@ export default async function OfferSheet(props: PageProps<"/offers">) {
     const refs: string[] = Array.isArray(rows[0]?.data?.affected) ? rows[0].data.affected : [];
     affected = assets.filter((a) => refs.includes(a.ref)).sort((a, b) => a.plannedDate.localeCompare(b.plannedDate));
   }
+  // The list is what the save recorded. How many still wait is counted now,
+  // so a reloaded receipt does not go on saying all of them need review.
+  const stillOpen = affected.filter((a) => a.status === "offer_changed").length;
 
   return (
     <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6">
@@ -118,8 +121,9 @@ export default async function OfferSheet(props: PageProps<"/offers">) {
           {affected.length ? (
             <>
               <p className="mt-2">
-                {affected.length} approved ad{affected.length === 1 ? "" : "s"} now need{affected.length === 1 ? "s" : ""} review
-                because the offer changed:
+                {stillOpen === affected.length
+                  ? `${affected.length} approved ad${affected.length === 1 ? "" : "s"} now need${affected.length === 1 ? "s" : ""} review because the offer changed:`
+                  : `This change sent ${affected.length} approved ad${affected.length === 1 ? "" : "s"} back to review. ${stillOpen === 0 ? "All have been reviewed since" : `${stillOpen} still need${stillOpen === 1 ? "s" : ""} review`}:`}
               </p>
               <ul className="mt-1 space-y-1">
                 {affected.map((a) => (

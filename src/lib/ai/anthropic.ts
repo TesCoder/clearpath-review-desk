@@ -34,9 +34,9 @@ export const anthropicModel: ClaimModel = {
       if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) {
         throw new ModelError("not_configured", "The API key was not accepted.");
       }
-      if (e instanceof Anthropic.BadRequestError) {
-        throw new ModelError("invalid", "The request was rejected.");
-      }
+      // A request the API rejects (for example, an account with no credit) is
+      // the service not being usable. It says nothing about the ad, so it is
+      // "unavailable", not an unreadable answer.
       if (e instanceof Anthropic.RateLimitError || e instanceof Anthropic.APIConnectionError || e instanceof Anthropic.APIError) {
         throw new ModelError("unavailable", "The model could not be reached.");
       }

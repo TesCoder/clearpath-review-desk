@@ -52,7 +52,11 @@ function Ai({ summary }: { summary: AiSummary }) {
   if (summary.state === "incomplete") {
     return <span className="font-medium text-amber-800">AI: incomplete{n ? `, ${things}` : ""}</span>;
   }
-  if (n === 0) return <span className="text-slate-500">AI: nothing reported</span>;
+  if (n === 0) {
+    return (
+      <span className="text-slate-500">{summary.reported > 0 ? "AI: nothing beyond the offer check" : "AI: nothing reported"}</span>
+    );
+  }
   return <span className="font-medium text-violet-800">AI: {things}</span>;
 }
 

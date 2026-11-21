@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { addOfferRevision, type FormState } from "@/app/actions";
 import { formatDate } from "@/lib/format";
-import { inForceText, isIsoDate, parsePercent, refuseRevision, termChanges, termsOn, withTimeline, type RevisionTerms } from "@/lib/offers";
+import { dayAfter, inForceText, isIsoDate, parsePercent, refuseRevision, termChanges, termsOn, withTimeline, type RevisionTerms } from "@/lib/offers";
 import { FIELD, FormError } from "./form";
 
 export type ApprovedAd = { ref: string; affiliate: string; placement: string; plannedDate: string };
@@ -110,8 +110,10 @@ export function OfferRevisionForm({
           ) : (
             <div className="mt-1 space-y-2 text-sm text-slate-800">
               <p>
-                Revision {nextNumber} would be in effect {inForceText(preview.candidate)}
-                {preview.candidate.replacedBy ? `, when revision ${preview.candidate.replacedBy} starts` : ""}.
+                Revision {nextNumber} would be in effect {inForceText(preview.candidate)}.
+                {preview.candidate.replacedBy && preview.candidate.effectiveTo
+                  ? ` Revision ${preview.candidate.replacedBy} takes over on ${formatDate(dayAfter(preview.candidate.effectiveTo))}.`
+                  : ""}
                 {inForce ? ` From ${formatDate(date)} it replaces revision ${inForce.revision}.` : ""}
               </p>
               {changed.length ? (

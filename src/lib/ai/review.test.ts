@@ -137,6 +137,28 @@ describe("a model steered into covering claims without reporting them", () => {
     expect(r.missedByModel).toEqual(["6.99% APR", "No origination fee"]);
   });
 
+  it("one rate finding quoting a whole short ad does not count either: it runs across sentences", async () => {
+    // 75 characters, under the length limit, and labeled "rate": the case two reviews found.
+    const v2 = "Compare ClearPath personal loans. Rates from 8.99% APR. No origination fee.";
+    const r = await reviewWithModel(v2, terms, PLACEMENT, fake({ findings: [finding(v2, { kind: "rate" })], copy_addresses_reviewer: false }));
+    expect(r.status).toBe("incomplete");
+    expect(r.missedByModel).toEqual(["8.99% APR", "No origination fee"]);
+  });
+
+  it("a finding that quotes two sentences reports neither of their claims", async () => {
+    const copy = "Great loans. Rates from 6.99% APR. No origination fee.";
+    const r = await reviewWithModel(copy, terms, PLACEMENT, fake({ findings: [finding("Rates from 6.99% APR. No origination fee", { kind: "fee" })], copy_addresses_reviewer: false }));
+    expect(r.status).toBe("incomplete");
+    expect(r.missedByModel.length).toBe(2);
+  });
+
+  it("a finding that quotes one sentence reports the claims in that sentence", async () => {
+    const copy = "Great loans. Rates from 6.99% APR with no fees.";
+    const r = await reviewWithModel(copy, terms, PLACEMENT, fake({ findings: [finding("Rates from 6.99% APR with no fees.")], copy_addresses_reviewer: false }));
+    expect(r.status).toBe("complete");
+    expect(r.missedByModel).toEqual([]);
+  });
+
   it("a finding touching one character of a claim does not count", async () => {
     const r = await reviewWithModel(copy, terms, PLACEMENT, fake({ findings: [finding("6"), finding("No", { kind: "fee" })], copy_addresses_reviewer: false }));
     expect(r.status).toBe("incomplete");

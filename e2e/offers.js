@@ -47,7 +47,7 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
   const shown = await preview();
   console.log('preview:', shown.replace(/\s+/g, ' '));
   ok('the preview gives the dates the revision would be in effect',
-    /Revision 3 would be in effect Dec 1, 2026 to Dec 31, 2026, when revision 2 starts/.test(shown) && /replaces revision 1/.test(shown));
+    /Revision 3 would be in effect Dec 1, 2026 to Dec 31, 2026\. Revision 2 takes over on Jan 1, 2027\./.test(shown) && /replaces revision 1/.test(shown));
   ok('the preview shows the changed term', /Lowest APR 8\.99% → 9\.49%/.test(shown));
   ok('the preview names the approved ads it would send back', /2 approved ads are planned in that period/.test(shown) && /AD-1038/.test(shown) && /AD-1041/.test(shown));
   await page.screenshot({ path: SHOTS + '/20-offer-preview.png', fullPage: true });

@@ -70,7 +70,7 @@ describe("a stated maximum inside the range", () => {
   it("the AI's warning about the maximum is shown, and the queue counts it", () => {
     const f = finding(COPY, "rate");
     expect(findingsBeyondChecks(review([f]), checks)).toEqual([f]);
-    expect(summarizeAi(review([f]), checks)).toEqual({ state: "read", toRead: 1 });
+    expect(summarizeAi(review([f]), checks)).toEqual({ state: "read", toRead: 1, reported: 1 });
     const short = finding("12.99%", "rate");
     expect(findingsBeyondChecks(review([short]), checks)).toEqual([short]);
   });
@@ -133,7 +133,7 @@ describe("a separate promise beside a flagged figure", () => {
       for (const kind of ["rate", "fee", "other", "savings_or_comparison"] as const) {
         const f = finding(quote, kind);
         expect(findingsBeyondChecks(review([f]), checks), `${quote} as ${kind}`).toEqual([f]);
-        expect(summarizeAi(review([f]), checks), `${quote} as ${kind}`).toEqual({ state: "read", toRead: 1 });
+        expect(summarizeAi(review([f]), checks), `${quote} as ${kind}`).toEqual({ state: "read", toRead: 1, reported: 1 });
       }
     }
   });
@@ -165,10 +165,18 @@ describe("what the queue says about the AI's read", () => {
 
   it("counts every finding that is shown", () => {
     const r = review([finding("Everyone qualifies", "approval_or_eligibility"), finding("8.99% APR", "rate")]);
-    expect(summarizeAi(r, checks)).toEqual({ state: "read", toRead: 2 });
+    expect(summarizeAi(r, checks)).toEqual({ state: "read", toRead: 2, reported: 2 });
+  });
+
+  it("tells an AI that reported nothing from one that only repeated a red flag", () => {
+    const hero = setup("Rates from 6.99% APR.");
+    const repeat = hero.finding("6.99% APR", "rate");
+    // The AI did report the rate. It is hidden as a repeat of the red flag, so nothing is left to read.
+    expect(summarizeAi(review([repeat]), hero.checks)).toEqual({ state: "read", toRead: 0, reported: 1 });
+    expect(summarizeAi(review([]), hero.checks)).toEqual({ state: "read", toRead: 0, reported: 0 });
   });
 
   it("carries an incomplete review through", () => {
-    expect(summarizeAi(review([], "incomplete"), checks)).toEqual({ state: "incomplete", toRead: 0 });
+    expect(summarizeAi(review([], "incomplete"), checks)).toEqual({ state: "incomplete", toRead: 0, reported: 0 });
   });
 });

@@ -281,10 +281,10 @@ describe("a fee figure is compared only when the ad names the origination fee", 
     }
   });
 
-  it("both fees in one sentence: the origination fee is compared, the other is held", () => {
+  it("both fees in one sentence: both are held, because the sentence says more than the origination fee", () => {
     const c = checks("A 2% origination fee and a 0% prepayment fee apply.");
     expect(c.map((x) => [x.claim.quote, x.status])).toEqual([
-      ["2%", "ok"],
+      ["2%", "needs_reviewer"],
       ["0%", "needs_reviewer"],
     ]);
   });
@@ -339,5 +339,132 @@ describe("a suggested edit needs the wording to identify the offer field", () =>
     expect(all.every((c) => c.suggestion === null)).toBe(true);
     expect(all.some((c) => c.status === "mismatch")).toBe(false);
     expect(all.some((c) => c.status === "needs_reviewer")).toBe(true);
+  });
+});
+
+// Round 6: a match means the figure equals the offer's term, read whole, in a sentence that says nothing more.
+const checks = (text: string) => analyzeCopy(text, winter).checks;
+
+describe("a rate is a match only when it equals the offer's lowest or highest APR", () => {
+  const status = (t: string) => checks(t).map((c) => c.status);
+
+  it("the offer's own figures still match, alone or as a range", () => {
+    expect(status("Rates from 8.99% APR.")).toEqual(["ok"]);
+    expect(status("ClearPath personal loans from 8.99% to 35.99% APR.")).toEqual(["ok", "ok"]);
+    expect(status("Maximum APR is 35.99%.")).toEqual(["ok"]);
+    expect(checks("Rates from 8.99% APR.")[0].message).toBe("8.99% APR is the lowest APR on the offer (8.99% to 35.99%).");
+  });
+
+  it("a false top of a range is held, however it is written", () => {
+    for (const t of [
+      "ClearPath personal loans from 8.99% to 15.99% APR.",
+      "8.99% - 15.99% APR",
+      "APR between 8.99% and 15.99%",
+      "Rates never exceed 15.99% APR.",
+      "12.99% APR maximum.",
+      "Your rate could be 12.99% APR.",
+    ]) {
+      const c = checks(t);
+      expect(c.some((x) => x.status === "needs_reviewer"), t).toBe(true);
+      expect(c.filter((x) => x.claim.value === 15.99 || x.claim.value === 12.99).every((x) => x.status !== "ok"), t).toBe(true);
+      expect(analyzeCopy(t, winter).openFlags, t).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("a stated lowest rate that is not the offer's is held, with a lead-in or a label, before or after the figure", () => {
+    for (const t of ["Rates from 12.99% APR.", "Rates as low as 12.99% APR.", "Rates from 35.99% APR.", "12.99% APR minimum."]) {
+      expect(status(t), t).toEqual(["needs_reviewer"]);
+    }
+  });
+
+  it("the offer's lowest rate stated as a maximum, or its highest stated as a minimum, is not a match", () => {
+    expect(status("The maximum APR is 8.99%.")).toEqual(["needs_reviewer"]);
+    expect(status("8.99% APR maximum.")).toEqual(["needs_reviewer"]);
+    expect(status("35.99% APR minimum.")).toEqual(["needs_reviewer"]);
+  });
+
+  it("a rate outside the range is still a mismatch, and the lowest-rate edit is still offered", () => {
+    expect(checks("Rates from 6.99% APR.")[0]).toMatchObject({ status: "mismatch", suggestion: "8.99% APR" });
+    expect(checks("APR up to 39.99%.")[0]).toMatchObject({ status: "mismatch", suggestion: null });
+  });
+});
+
+describe("a figure is read only as a whole number", () => {
+  it("a leading decimal point, a longer number and a larger written-out number are held, never matched", () => {
+    for (const t of ["Our APR is .12%.", "Our APR is 1012.99%.", "Our APR is 1,012.99%.", "One hundred twelve percent APR.", "One hundred and twelve percent APR.", "Twenty one hundred nine percent APR."]) {
+      const a = analyzeCopy(t, winter);
+      expect(a.checks.some((c) => c.status === "ok"), t).toBe(false);
+      expect(a.openFlags, t).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("the held quote is the number as written", () => {
+    expect(checks("Our APR is .12%.").map((c) => c.claim.quote)).toEqual([".12%"]);
+    expect(checks("Our APR is 1012.99%.").map((c) => c.claim.quote)).toEqual(["1012.99%"]);
+  });
+
+  it("ordinary figures are read as before", () => {
+    expect(checks("APR 0.12%.")[0]).toMatchObject({ status: "mismatch" });
+    expect(checks("Rates from six point nine nine percent APR.")[0].claim.value).toBe(6.99);
+    expect(checks("Rates from eight point nine nine percent APR.")[0].status).toBe("ok");
+    expect(checks("Twenty-one percent APR.")[0].claim.value).toBe(21);
+  });
+});
+
+describe("a fee is a match, and an edit is offered, only when the sentence says nothing more", () => {
+  it("the plain statements still match", () => {
+    for (const t of ["A 2% origination fee applies.", "A 2% origination fee may apply.", "Origination fee of 2%.", "Rates from 8.99% APR with a 2% origination fee."]) {
+      expect(checks(t).find((c) => c.claim.kind === "fee")?.status, t).toBe("ok");
+    }
+  });
+
+  it("a fee sentence that says more is held, though the figure is the offer's", () => {
+    for (const t of ["A 2% origination fee applies for late payments.", "The 2% origination fee is waived for new customers.", "We never charge the 2% origination fee."]) {
+      const c = checks(t);
+      expect(c.some((x) => x.status === "ok"), t).toBe(false);
+      expect(c.some((x) => x.status === "needs_reviewer"), t).toBe(true);
+    }
+  });
+
+  it('"No fees for late payments" is flagged with no edit, so the one-click fix cannot write a false sentence', () => {
+    const c = checks("No fees for late payments.");
+    expect(c[0]).toMatchObject({ status: "mismatch", suggestion: null });
+  });
+
+  it("a no-fee claim that is the whole sentence keeps its edit", () => {
+    expect(checks("No origination fee.")[0]).toMatchObject({ status: "mismatch", suggestion: "A 2% origination fee applies" });
+    expect(checks("Rates from 8.99% APR. No fees!")[1]).toMatchObject({ status: "mismatch", suggestion: "A 2% origination fee applies" });
+    expect(checks("Loans from 6.99% APR with no fees.").find((x) => x.claim.kind === "no_fee")).toMatchObject({ status: "mismatch", suggestion: null });
+  });
+
+  it("a wrong fee figure in a sentence that says more is flagged with no edit", () => {
+    expect(checks("A 5% origination fee applies for late payments.")[0]).toMatchObject({ status: "mismatch", suggestion: null });
+    expect(checks("A 5% origination fee applies.")[0]).toMatchObject({ status: "mismatch", suggestion: "2%" });
+  });
+});
+
+describe("hidden characters are recognized by kind, not only from a list", () => {
+  const kinds: Array<[string, string]> = [
+    ["a variation selector", "\u{E0100}"],
+    ["a control character", "\u0001"],
+    ["delete", "\u007F"],
+    ["a C1 control", "\u0080"],
+    ["an interlinear annotation mark", "\uFFF9"],
+    ["a Mongolian variation selector", "\u180F"],
+    ["a musical format mark", "\u{1D173}"],
+    ["a private-use character", "\uE000"],
+    ["a line separator", "\u2028"],
+  ];
+  for (const [name, ch] of kinds) {
+    it(`${name} is flagged, and a rate split by it is still read`, () => {
+      const a = analyzeCopy(`Rates from 6.${ch}99% APR.`, winter);
+      expect(a.hidden.map((h) => h.kind)).toEqual(["invisible"]);
+      expect(a.mismatches).toBe(1);
+    });
+  }
+
+  it("line breaks, tabs and ordinary spaces are not hidden text", () => {
+    expect(findHiddenText("Rates from 8.99% APR.\nA 2% origination fee applies.\r\n\tApply today.")).toEqual([]);
+    expect(findHiddenText("Rates from 8.99%\u00A0APR.")).toEqual([]);
   });
 });

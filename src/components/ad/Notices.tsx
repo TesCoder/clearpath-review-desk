@@ -2,7 +2,7 @@ import Link from "next/link";
 import { SwitchTo } from "@/components/SwitchTo";
 import type { AssetView, RevisionTerms } from "@/lib/data";
 import { formatDate, formatMoment, withArticle } from "@/lib/format";
-import type { DecisionRecord, Role } from "@/lib/status";
+import { REVIEWER_TURN, type DecisionRecord, type Role } from "@/lib/status";
 
 const TONE = {
   good: ["border-emerald-200 bg-emerald-50", "text-emerald-900"],
@@ -20,7 +20,10 @@ function Notice({ tone, children }: { tone: keyof typeof TONE; children: React.R
 
 /**
  * The line shown right after an action, with a button that opens the same ad
- * in the other role. `done` comes from the address the action redirected to.
+ * in the other role. `done` comes from the address the action redirected to,
+ * and an address outlives the moment: the page may be reloaded after the ad
+ * was moved, edited or decided again in another tab. So each notice is shown
+ * only while the ad's status still agrees with it.
  */
 export function DoneNotice({ done, asset }: { done: string | string[] | undefined; asset: AssetView }) {
   const { latest, ref } = asset;
@@ -29,7 +32,8 @@ export function DoneNotice({ done, asset }: { done: string | string[] | undefine
       Back to the queue
     </Link>
   );
-  if (done === "approved") {
+  const withReviewer = REVIEWER_TURN.includes(asset.status);
+  if (done === "approved" && asset.status === "approved") {
     return (
       <Notice tone="good">
         <span>Approved. The marketer can now see the approved copy.</span>
@@ -38,7 +42,7 @@ export function DoneNotice({ done, asset }: { done: string | string[] | undefine
       </Notice>
     );
   }
-  if (done === "requested") {
+  if (done === "requested" && asset.status === "changes_requested") {
     return (
       <Notice tone="plain">
         <span>Request sent. The ad is with the marketer.</span>
@@ -47,7 +51,7 @@ export function DoneNotice({ done, asset }: { done: string | string[] | undefine
       </Notice>
     );
   }
-  if (done === "submitted" || done === "resubmitted") {
+  if ((done === "submitted" || done === "resubmitted") && withReviewer) {
     return (
       <Notice tone="good">
         <span>Sent for review as version {latest.number}.</span>
@@ -55,7 +59,7 @@ export function DoneNotice({ done, asset }: { done: string | string[] | undefine
       </Notice>
     );
   }
-  if (done === "moved") {
+  if (done === "moved" && withReviewer) {
     return (
       <Notice tone="plain">
         <span>
@@ -81,20 +85,20 @@ export function ApprovalLostNotice({
   approvalTerms: RevisionTerms | null | undefined;
 }) {
   const { latest, terms } = asset;
+  // What the move changed, so the notice names it and nothing else.
+  const dateMoved = approval ? approval.plannedDate !== asset.plannedDate : false;
+  const placementMoved = approval ? approval.placement !== asset.placement : false;
+  const movedWhat = dateMoved && placementMoved ? "date and placement" : placementMoved ? "placement" : "date";
   return (
     <>
       {asset.status === "rescheduled" && approval && approvalTerms ? (
         <p className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          <strong>Same words, new date.</strong> Version{" "}
-          {approval.versionNumber} was approved for{" "}
-          {formatDate(approval.plannedDate)} under offer revision{" "}
-          {approvalTerms.revision}. It was then moved to{" "}
-          {formatDate(asset.plannedDate)}
-          {terms
-            ? `, when revision ${terms.revision} applies`
-            : ", when no offer terms are in effect"}
-          . That approval still stands for the original date only, so this
-          placement needs its own review.
+          <strong>Same words, new {movedWhat}.</strong> Version {approval.versionNumber} was approved for{" "}
+          {formatDate(approval.plannedDate)} as {withArticle(approval.placement)}, under offer revision {approvalTerms.revision}. It
+          was then moved to {dateMoved ? formatDate(asset.plannedDate) : "the same date"}
+          {placementMoved ? ` as ${withArticle(asset.placement)}` : ""}
+          {terms ? `, when revision ${terms.revision} applies` : ", when no offer terms are in effect"}. That approval still stands
+          for the original {movedWhat} only, so this one needs its own review.
         </p>
       ) : null}
       {asset.status === "offer_changed" && approval && approvalTerms && terms ? (

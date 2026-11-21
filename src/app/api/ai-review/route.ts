@@ -27,5 +27,7 @@ export async function POST(request: Request) {
   const asset = await loadAsset(workspaceId, ref);
   if (!asset) return NextResponse.json({ status: "unavailable", reason: "That ad is not in your workspace." }, { status: 404 });
   const review = await runReview(workspaceId, asset);
-  return NextResponse.json({ status: review.status, reason: review.reason });
+  // `stored` tells the page whether reloading will show a result. A refused,
+  // cut-off or malformed answer is not stored, so the page must say so itself.
+  return NextResponse.json({ status: review.status, reason: review.reason, stored: review.answered });
 }

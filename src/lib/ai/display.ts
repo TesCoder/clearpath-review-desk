@@ -41,14 +41,20 @@ export function findingsBeyondChecks(review: AiReview | null, checks: Check[]): 
   return (review?.findings ?? []).filter((f) => !alreadyFlagged(f));
 }
 
-/** What the queue says about the AI's read of an ad. */
+/**
+ * What the queue says about the AI's read of an ad. `toRead` counts the
+ * findings shown on the review screen. `reported` counts everything the AI
+ * reported, repeats of red code flags included, so the queue can tell "the AI
+ * said nothing" from "the AI said nothing the offer check has not flagged".
+ */
 export type AiSummary =
   | { state: "not_run" }
-  | { state: "incomplete"; toRead: number }
-  | { state: "read"; toRead: number };
+  | { state: "incomplete"; toRead: number; reported: number }
+  | { state: "read"; toRead: number; reported: number };
 
 export function summarizeAi(review: AiReview | null, checks: Check[]): AiSummary {
   if (!review) return { state: "not_run" };
   const toRead = findingsBeyondChecks(review, checks).length;
-  return review.status === "incomplete" ? { state: "incomplete", toRead } : { state: "read", toRead };
+  const reported = review.findings.length;
+  return review.status === "incomplete" ? { state: "incomplete", toRead, reported } : { state: "read", toRead, reported };
 }

@@ -84,6 +84,16 @@ describe("adding a revision never edits another: the dates in force are derived"
     expect(coverageText(t, "pl")).toBe("Nov 1, 2026 onward");
   });
 
+  it("when two revisions start on the same day, the earlier ones are said to be replaced by the one in force", () => {
+    const t = withTimeline([...sheet, numbered("r3", 3, "2026-12-01", null), numbered("r4", 4, "2026-12-01", null)]);
+    const byId = Object.fromEntries(t.map((r) => [r.revisionId, r]));
+    expect(termsOn(t, "pl", "2026-12-08")?.revisionId).toBe("r4");
+    expect(byId.r1.replacedBy).toBe(4); // not 3: revision 3 is in force on no date
+    expect(byId.r3.replacedBy).toBe(4);
+    expect(inForceText(byId.r3)).toBeNull();
+    expect(byId.r4.replacedBy).toBe(2);
+  });
+
   it("a revision after an open-ended one ends it the day before", () => {
     const t = withTimeline([...sheet, numbered("r3", 3, "2027-03-01", null)]);
     expect(inForceText(t.find((r) => r.revisionId === "r2")!)).toBe("Jan 1, 2027 to Feb 28, 2027");

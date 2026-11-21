@@ -7,7 +7,7 @@
 //   3. Code verifies every quote the model cites, word for word.
 //   4. Any failure or gap makes the review "incomplete". It is never "clean".
 
-import { findClaims, type OfferTerms } from "../checks";
+import { findClaims, findHiddenText, type OfferTerms } from "../checks";
 import { findInstructionText } from "../injection";
 import { FINDING_KINDS, ModelError, type AiFinding, type AiReview, type ClaimModel, type ModelRequest } from "./types";
 
@@ -146,16 +146,25 @@ export async function reviewWithModel(
 
 const MAX_COVERING_QUOTE = 120;
 
+/** True when the quoted words run past the end of a sentence into another one. */
+const spansSentences = (quote: string) => /[.!?]\s+\S|\n\s*\S/.test(quote.trim());
+
 /**
- * Does this finding actually report this code-found claim? Only a short rate
- * or fee finding that contains the claim counts, or one that is most of it.
- * A finding that quotes the whole ad, or touches one character of the claim,
- * does not: otherwise a steered model could "cover" every claim with one
- * long quote and be marked complete while saying nothing.
+ * Does this finding actually report this code-found claim? Only a rate or fee
+ * finding that quotes within one sentence counts, and only when it contains
+ * the claim or is most of it. A finding that quotes several sentences, or
+ * the whole ad, or touches one character of the claim, does not: otherwise a
+ * steered model could "cover" every claim with one long quote and be marked
+ * complete while saying nothing about any of them.
+ *
+ * Corrected three times, each time to count less: first the length limit and
+ * the kind, then (after two reviews showed a short ad could still be covered
+ * whole by one "rate" finding) the one-sentence rule.
  */
 function reports(f: AiFinding, c: { start: number; end: number }): boolean {
   if (f.kind !== "rate" && f.kind !== "fee") return false;
   if (f.end - f.start > MAX_COVERING_QUOTE) return false;
+  if (spansSentences(f.quote)) return false;
   const contains = f.start <= c.start && f.end >= c.end;
   const overlap = Math.min(f.end, c.end) - Math.max(f.start, c.start);
   const isMostOfIt = f.start >= c.start && f.end <= c.end && overlap * 2 >= c.end - c.start;
@@ -198,6 +207,11 @@ export function finalizeReview(
   // model's own flag are both used: either one is enough.
   if (findings.length === 0 && (addressesReviewer || findInstructionText(copy).length > 0)) {
     reasons.push("The copy contains text addressed to the reviewer or to an AI, and the model reported nothing at all.");
+  } else if (findings.length === 0 && findHiddenText(copy).length > 0) {
+    // Hidden or look-alike characters are how an instruction is smuggled past
+    // a pattern. Code cannot read what they spell, so an empty answer on such
+    // copy is not taken as a full account of it.
+    reasons.push("The copy contains hidden or look-alike characters, and the model reported nothing at all.");
   }
   return {
     status: reasons.length ? "incomplete" : "complete",

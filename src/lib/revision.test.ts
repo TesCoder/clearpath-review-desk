@@ -140,7 +140,7 @@ describe("reviewing a revision", () => {
       const r = reviewRevision(BEFORE, "Rates from 12.49% APR. Maximum APR is 35.99%.", [request], terms);
       expect(r.outcomes[0].outcome).toBe("changed");
       expect(r.outcomes[0].detail).toBe(
-        "6.99% APR \u2192 12.49% APR. The request asked for 8.99%. The new figure is within the offer, but it is not the one requested. Confirm it answers your request.",
+        "6.99% APR \u2192 12.49% APR. The request asked for 8.99%. The new figure is inside the offer's range, but it is not the one requested. Confirm it answers your request.",
       );
     });
 
