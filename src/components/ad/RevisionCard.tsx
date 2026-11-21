@@ -1,7 +1,7 @@
 import { DiffView } from "@/components/CopyView";
 import type { AiFinding } from "@/lib/ai/types";
 import type { AssetView, VersionView } from "@/lib/data";
-import { diffWords, hasChanges } from "@/lib/diff";
+import { diffWords, hasAdditions, hasChanges } from "@/lib/diff";
 import { addedSentences, reviewRevision, type RequestOutcome } from "@/lib/revision";
 import { Badge, CHECK, Card } from "./ui";
 
@@ -26,7 +26,12 @@ const OUTCOME: Record<
   },
 };
 
-/** Drops the opening "The ad says ..." sentence when the claim is already quoted beside it. */
+/**
+ * Drops the opening "The ad says ..." sentence when the claim is already
+ * quoted beside it. It relies on the shape of the messages written in
+ * checkClaim (src/lib/checks.ts): "The ad says X. The <offer> ...". A message
+ * of any other shape is returned whole.
+ */
 function withoutLead(message: string): string {
   const at = message.indexOf(". The ");
   return message.startsWith("The ad says") && at > 0
@@ -70,7 +75,7 @@ export function RevisionCard({
   // Figures that are new in this version and agree with the offer. Shown so
   // "nothing new" is never said about a version that added a rate or a fee.
   const matchingNew = revision?.newClaims.filter((c) => c.status === "ok") ?? [];
-  const onlyRemoved = hasChanges(diff) && !diff.some((p) => p.type === "added" && p.text.trim() !== "");
+  const onlyRemoved = hasChanges(diff) && !hasAdditions(diff);
   return (
     <Card title={`Since version ${previous.number}`} tone="attention">
       {revision && revision.outcomes.length ? (

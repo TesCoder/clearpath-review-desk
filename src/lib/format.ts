@@ -39,3 +39,8 @@ export function withArticle(noun: string): string {
   const lower = noun.toLowerCase();
   return `${/^[aeiou]/.test(lower) ? "an" : "a"} ${lower}`;
 }
+
+/** A percentage with two decimals, as the offer sheet states it: "8.99%", "2.00%". */
+export function percent(n: number): string {
+  return `${n.toFixed(2)}%`;
+}

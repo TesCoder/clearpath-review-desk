@@ -303,6 +303,7 @@ Code decides the two things that must be exact: whether a number matches the off
 - `src/lib/offers.ts`, `src/lib/offer-sheet.ts`: which offer revision is in force on a date (worked out from start dates, so adding one never rewrites another), the rule for a new revision, and the write that adds one to a visitor's demo.
 - `src/lib/revision.ts`, `src/lib/diff.ts`: whether a revision answered each request, and what changed.
 - `src/lib/ai/`: the claim finder. `review.ts` is the pipeline and takes the model as an argument, which is how the tests put a hostile fake in its place. `wording.ts` is what the marketer is shown when they check a draft; `display.ts` decides which AI findings appear beside the code checks.
-- `src/app/actions.ts`: every write, with its checks.
-- `src/proxy.ts`: the per-visitor workspace cookie and the content security policy.
+- `src/app/actions.ts`: every write, with its checks. `src/lib/events.ts` is the one way to add to the event log.
+- `src/app/ads/[ref]/page.tsx`: the review screen. It loads the ad and decides which cards apply; each card is a file in `src/components/ad/`.
+- `src/proxy.ts`: the per-visitor workspace cookie and the content security policy. The cookie names and settings are in `src/lib/session.ts`.
 - `db/schema.sql`: the tables. Offers have dated revisions, shared or added in one visitor's demo; a version's text never changes; a decision records exactly what it was made on; nothing stores a status.

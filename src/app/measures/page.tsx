@@ -89,7 +89,7 @@ export default async function Measures() {
                     {WITH[m.withWhom].label}
                   </span>
                 </td>
-                <td className="px-4 py-3" data-cell="sent-back">
+                <td className="px-4 py-3">
                   {m.timesSentBack}
                 </td>
                 <td className="px-4 py-3">{m.versionsSubmitted}</td>

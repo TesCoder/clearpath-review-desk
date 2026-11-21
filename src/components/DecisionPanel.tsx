@@ -2,10 +2,12 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { decide, type FormState } from "@/app/actions";
+import { MAX_ANCHOR_CHARS } from "@/lib/checks";
+import { FormError, TEXT_BOX } from "./form";
 
 export type Anchor = {
   quote: string;
-  /** A comment the reviewer can edit, written from the code check. */
+  /** A comment the reviewer can edit, drafted by the code check or by the AI (see `source`). */
   draft: string;
   flagged: boolean;
   /** Who wrote the draft: the offer check in code, or the AI. */
@@ -44,6 +46,8 @@ export function DecisionPanel(props: Props) {
   const [anchor, setAnchor] = useState(firstFlag?.quote ?? "");
   const [comment, setComment] = useState(firstFlag?.draft ?? "");
   const [edited, setEdited] = useState(false);
+  // The same fact as `edited`, readable from the selection listener below. That
+  // listener is attached once, so it would otherwise see a stale `edited`.
   const editedRef = useRef(false);
 
   // Selecting words in the ad anchors the request to them.
@@ -54,7 +58,7 @@ export function DecisionPanel(props: Props) {
       if (!sel || sel.isCollapsed || !el || !sel.anchorNode || !sel.focusNode) return;
       if (!el.contains(sel.anchorNode) || !el.contains(sel.focusNode)) return;
       const picked = sel.toString().trim();
-      if (!picked || picked.length > 200) return;
+      if (!picked || picked.length > MAX_ANCHOR_CHARS) return;
       setMode("request_changes");
       setAnchor(picked);
       // A draft written for another claim would now sit under the wrong words.
@@ -167,7 +171,7 @@ export function DecisionPanel(props: Props) {
               maxLength={props.maxComment}
               required
               placeholder="Say what to change and why, so the marketer can fix it in one round."
-              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-600"
+              className={TEXT_BOX}
             />
           </label>
           {!edited && comment ? (
@@ -205,11 +209,7 @@ export function DecisionPanel(props: Props) {
           </button>
         </div>
       )}
-      {state.error ? (
-        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">
-          {state.error}
-        </p>
-      ) : null}
+      <FormError error={state.error} className="mt-3" />
     </form>
   );
 }

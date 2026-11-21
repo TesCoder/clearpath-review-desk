@@ -29,6 +29,5 @@ export function db(): postgres.Sql {
   return globalForDb.__sql;
 }
 
-export function hasDatabase(): boolean {
-  return Boolean(process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL);
-}
+/** The pool, or a transaction: a read inside a transaction sees what that transaction has locked. */
+export type Executor = postgres.Sql | postgres.TransactionSql;

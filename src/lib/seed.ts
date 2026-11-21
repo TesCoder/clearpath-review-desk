@@ -1,16 +1,13 @@
 import "server-only";
-import type postgres from "postgres";
+import type { Executor } from "./db";
 import { fingerprint } from "./fingerprint";
-
-type Tx = postgres.TransactionSql | postgres.Sql;
 
 export const DEMO_REVIEWER = "Demo reviewer";
 
-// The hero ad's three versions. Version 3 is what the marketer submits in the
-// demo; it is here so tests and the walkthrough use the same words.
+// The hero ad's two seeded versions. Version 3 is what the marketer submits in
+// the walkthrough, with the fee sentence removed.
 export const HERO_V1 = "Compare ClearPath personal loans. Rates from 6.99% APR.";
 export const HERO_V2 = "Compare ClearPath personal loans. Rates from 8.99% APR. No origination fee.";
-export const HERO_V3 = "Compare ClearPath personal loans. Rates from 8.99% APR.";
 
 // The request on version 1 is the one the app drafts for that rate, as a
 // reviewer would send it unedited. A test keeps the two in step.
@@ -161,7 +158,7 @@ const SEED: SeedAsset[] = [
   },
 ];
 
-export async function seedWorkspace(sql: Tx, workspaceId: string): Promise<void> {
+export async function seedWorkspace(sql: Executor, workspaceId: string): Promise<void> {
   const ago = (hours: number) => new Date(Date.now() - hours * 3600_000);
 
   for (const a of SEED) {
@@ -219,7 +216,7 @@ export async function seedWorkspace(sql: Tx, workspaceId: string): Promise<void>
 }
 
 /** Puts one workspace back to the seeded demo: its ads, its history, and any offer revisions added in it. */
-export async function resetWorkspaceData(sql: Tx, workspaceId: string): Promise<void> {
+export async function resetWorkspaceData(sql: Executor, workspaceId: string): Promise<void> {
   await sql`delete from events where workspace_id = ${workspaceId}`;
   await sql`delete from assets where workspace_id = ${workspaceId}`;
   // Offer revisions added in this demo go too. The shared ones are untouched.

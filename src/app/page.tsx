@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ResetNotice } from "@/components/ResetNotice";
 import { StatusPill } from "@/components/StatusPill";
 import { summarizeAi, type AiSummary } from "@/lib/ai/display";
 import { getStoredReviews } from "@/lib/ai/store";
@@ -144,7 +145,7 @@ function Rows({
                 <td className="px-4 py-3">
                   <Flags a={a} />
                 </td>
-                <td className="px-4 py-3" data-cell="ai" data-ai={aiFor(a).state}>
+                <td className="px-4 py-3" data-cell="ai">
                   <Ai summary={aiFor(a)} />
                 </td>
               </tr>
@@ -170,14 +171,7 @@ export default async function Queue(props: PageProps<"/">) {
   const offerChanged = waiting.filter((a) => a.status === "offer_changed").length;
   return (
     <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6">
-      {reset ? (
-        <p
-          className="mb-6 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900"
-          role="status"
-        >
-          Your demo workspace is back to its starting ads.
-        </p>
-      ) : null}
+      <ResetNotice show={Boolean(reset)} />
       <h1 className="text-2xl font-semibold">Review queue</h1>
       <p className="mt-1 text-sm text-slate-600">
         {waiting.length} ad{waiting.length === 1 ? "" : "s"} waiting for your
@@ -187,7 +181,6 @@ export default async function Queue(props: PageProps<"/">) {
         <p
           className="mt-3 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-950"
           role="status"
-          data-banner="queue-offer-changed"
         >
           {offerChanged} approved ad{offerChanged === 1 ? "" : "s"} need{offerChanged === 1 ? "s" : ""} review again because the
           offer changed. {offerChanged === 1 ? "It is" : "They are"} at the top of the queue.{" "}

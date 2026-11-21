@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { FINDING_LABEL } from "@/lib/ai/types";
 import type { WordingResult } from "@/lib/ai/wording";
+import { Badge } from "./ad/ui";
 import { CopyView } from "./CopyView";
 
 type Answer = WordingResult & { checked?: string };
@@ -112,9 +113,7 @@ export function WordingCheck({
                     <li key={i} className="rounded-md border border-violet-200 bg-white p-2 text-sm">
                       <p className="text-slate-900">
                         <q className="font-medium">{f.quote}</q>{" "}
-                        <span className="inline-block rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-900">
-                          {FINDING_LABEL[f.kind] ?? "Other"}
-                        </span>
+                        <Badge label={FINDING_LABEL[f.kind] ?? "Other"} cls="bg-violet-100 text-violet-900" />
                       </p>
                       <p className="mt-0.5 text-slate-600">{f.why}</p>
                       {f.suggestion ? <p className="mt-0.5 text-slate-800">Suggested change: {f.suggestion}</p> : null}

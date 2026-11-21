@@ -3,13 +3,13 @@ import { OfferRevisionForm } from "@/components/OfferRevisionForm";
 import { SwitchTo } from "@/components/SwitchTo";
 import { loadAssets, loadOffers, loadRevisions, type AssetView, type RevisionTerms } from "@/lib/data";
 import { db } from "@/lib/db";
-import { formatDate } from "@/lib/format";
+import { formatDate, percent } from "@/lib/format";
 import { SUPPORTED_PRODUCT, inForceText } from "@/lib/offers";
 import { getRole, getWorkspaceId } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-const pct = (n: number | null) => (n === null ? "Not stated" : `${n.toFixed(2)}%`);
+const pct = (n: number | null) => (n === null ? "Not stated" : percent(n));
 
 /** The first day of next month, as YYYY-MM-DD: a usual start date for new terms. */
 function firstOfNextMonth(): string {
@@ -121,7 +121,7 @@ export default async function OfferSheet(props: PageProps<"/offers">) {
                 {affected.length} approved ad{affected.length === 1 ? "" : "s"} now need{affected.length === 1 ? "s" : ""} review
                 because the offer changed:
               </p>
-              <ul className="mt-1 space-y-1" data-list="affected">
+              <ul className="mt-1 space-y-1">
                 {affected.map((a) => (
                   <li key={a.id}>
                     <Link href={`/ads/${a.ref}`} className="font-medium underline">
@@ -162,7 +162,6 @@ export default async function OfferSheet(props: PageProps<"/offers">) {
           .filter((a) => a.offer.id === o.id && a.status === "approved")
           .map((a) => ({
             ref: a.ref,
-            title: a.title,
             affiliate: a.affiliate.name,
             placement: a.placement,
             plannedDate: a.plannedDate,

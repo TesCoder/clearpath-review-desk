@@ -4,11 +4,9 @@ import { useActionState, useState } from "react";
 import { addOfferRevision, type FormState } from "@/app/actions";
 import { formatDate } from "@/lib/format";
 import { inForceText, isIsoDate, parsePercent, refuseRevision, termChanges, termsOn, withTimeline, type RevisionTerms } from "@/lib/offers";
+import { FIELD, FormError } from "./form";
 
-export type ApprovedAd = { ref: string; title: string; affiliate: string; placement: string; plannedDate: string };
-
-const field =
-  "mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-600";
+export type ApprovedAd = { ref: string; affiliate: string; placement: string; plannedDate: string };
 
 const two = (n: number | null) => (n === null ? "" : n.toFixed(2));
 
@@ -82,20 +80,20 @@ export function OfferRevisionForm({
       <div className="space-y-4 lg:col-span-2">
         <label className="block">
           <span className="text-sm font-medium text-slate-800">Effective from</span>
-          <input type="date" name="effectiveFrom" value={date} onChange={(e) => setDate(e.target.value)} className={field} required />
+          <input type="date" name="effectiveFrom" value={date} onChange={(e) => setDate(e.target.value)} className={FIELD} required />
         </label>
         <div className="grid grid-cols-3 gap-3">
           <label className="block">
             <span className="text-sm font-medium text-slate-800">Lowest APR %</span>
-            <input name="aprMin" inputMode="decimal" value={aprMin} onChange={(e) => setAprMin(e.target.value)} className={field} required />
+            <input name="aprMin" inputMode="decimal" value={aprMin} onChange={(e) => setAprMin(e.target.value)} className={FIELD} required />
           </label>
           <label className="block">
             <span className="text-sm font-medium text-slate-800">Highest APR %</span>
-            <input name="aprMax" inputMode="decimal" value={aprMax} onChange={(e) => setAprMax(e.target.value)} className={field} required />
+            <input name="aprMax" inputMode="decimal" value={aprMax} onChange={(e) => setAprMax(e.target.value)} className={FIELD} required />
           </label>
           <label className="block">
             <span className="text-sm font-medium text-slate-800">Origination fee %</span>
-            <input name="feePct" inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} className={field} required />
+            <input name="feePct" inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} className={FIELD} required />
           </label>
         </div>
         <p className="text-xs text-slate-500">
@@ -147,11 +145,7 @@ export function OfferRevisionForm({
             </div>
           )}
         </div>
-        {state.error ? (
-          <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">
-            {state.error}
-          </p>
-        ) : null}
+        <FormError error={state.error} className="mt-3" />
         <button
           type="submit"
           disabled={pending || Boolean(refusal)}

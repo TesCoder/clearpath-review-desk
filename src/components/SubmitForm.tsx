@@ -3,16 +3,14 @@
 import { useActionState, useState } from "react";
 import { submitAd, type FormState } from "@/app/actions";
 import { MAX_NOTE_CHARS } from "@/lib/checks";
-import { formatDate } from "@/lib/format";
+import { formatDate, percent } from "@/lib/format";
 import { MAX_TITLE_CHARS, PLACEMENTS, coverageText, isIsoDate, termsOn, type RevisionTerms } from "@/lib/offers";
 import { CopyEditor } from "./CopyEditor";
 import { WordingCheck } from "./WordingCheck";
+import { FIELD, FormError } from "./form";
 
 type Option = { id: string; label: string };
 type OfferOption = Option & { supported: boolean };
-
-const field =
-  "mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-600";
 
 export function SubmitForm({
   affiliates,
@@ -37,7 +35,7 @@ export function SubmitForm({
       <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 lg:col-span-2">
         <label className="block">
           <span className="text-sm font-medium text-slate-800">Affiliate</span>
-          <select name="affiliateId" className={field} required>
+          <select name="affiliateId" className={FIELD} required>
             {affiliates.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.label}
@@ -47,7 +45,7 @@ export function SubmitForm({
         </label>
         <label className="block">
           <span className="text-sm font-medium text-slate-800">Where it will run</span>
-          <select name="placement" value={placement} onChange={(e) => setPlacement(e.target.value)} className={field} required>
+          <select name="placement" value={placement} onChange={(e) => setPlacement(e.target.value)} className={FIELD} required>
             {PLACEMENTS.map((p) => (
               <option key={p} value={p}>
                 {p}
@@ -57,11 +55,11 @@ export function SubmitForm({
         </label>
         <label className="block">
           <span className="text-sm font-medium text-slate-800">Planned publication date</span>
-          <input type="date" name="plannedDate" value={date} onChange={(e) => setDate(e.target.value)} className={field} required />
+          <input type="date" name="plannedDate" value={date} onChange={(e) => setDate(e.target.value)} className={FIELD} required />
         </label>
         <label className="block">
           <span className="text-sm font-medium text-slate-800">ClearPath offer it promotes</span>
-          <select name="offerId" value={offerId} onChange={(e) => setOfferId(e.target.value)} className={field} required>
+          <select name="offerId" value={offerId} onChange={(e) => setOfferId(e.target.value)} className={FIELD} required>
             {offers.map((o) => (
               <option key={o.id} value={o.id} disabled={!o.supported}>
                 {o.label}
@@ -75,14 +73,14 @@ export function SubmitForm({
           {terms ? (
             <span className="mt-1 block text-xs text-slate-500">
               Terms in effect on {formatDate(date)}: revision {terms.revision}
-              {terms.aprMin !== null ? `, APR ${terms.aprMin.toFixed(2)}% to ${terms.aprMax?.toFixed(2)}%` : ""}
+              {terms.aprMin !== null && terms.aprMax !== null ? `, APR ${percent(terms.aprMin)} to ${percent(terms.aprMax)}` : ""}
               {terms.feePct !== null ? `, ${terms.feePct}% origination fee` : ""}.
             </span>
           ) : null}
         </label>
         <label className="block">
           <span className="text-sm font-medium text-slate-800">Short name for this ad</span>
-          <input name="title" maxLength={MAX_TITLE_CHARS} className={field} placeholder="For example: January listing" required />
+          <input name="title" maxLength={MAX_TITLE_CHARS} className={FIELD} placeholder="For example: January listing" required />
         </label>
       </div>
 
@@ -97,13 +95,9 @@ export function SubmitForm({
         <WordingCheck body={body} offerId={offerId} plannedDate={date} placement={placement} ready={Boolean(terms)} />
         <label className="block">
           <span className="text-sm font-medium text-slate-800">Note to the reviewer (optional)</span>
-          <textarea name="note" rows={2} maxLength={MAX_NOTE_CHARS} className={field} />
+          <textarea name="note" rows={2} maxLength={MAX_NOTE_CHARS} className={FIELD} />
         </label>
-        {state.error ? (
-          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">
-            {state.error}
-          </p>
-        ) : null}
+        <FormError error={state.error} />
         <button
           type="submit"
           disabled={pending || !terms}

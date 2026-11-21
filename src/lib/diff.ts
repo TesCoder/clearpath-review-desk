@@ -43,3 +43,8 @@ export function diffWords(before: string, after: string): DiffPart[] {
 export function hasChanges(parts: DiffPart[]): boolean {
   return parts.some((p) => p.type !== "same" && p.text.trim() !== "");
 }
+
+/** True when the later version added at least one word. A revision that only took words out adds nothing. */
+export function hasAdditions(parts: DiffPart[]): boolean {
+  return parts.some((p) => p.type === "added" && p.text.trim() !== "");
+}

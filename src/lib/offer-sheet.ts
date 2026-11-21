@@ -2,6 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { loadAssets, loadRevisions } from "./data";
 import { db } from "./db";
+import { logEvent } from "./events";
 import { MAX_ADDED_REVISIONS, SUPPORTED_PRODUCT, refuseRevision, termsOn, type NewRevisionInput } from "./offers";
 
 export type AddRevisionResult =
@@ -68,16 +69,10 @@ export async function addRevision(workspaceId: string, offerId: string, input: N
       (a) => a.status === "offer_changed" && before.find((b) => b.id === a.id)?.status === "approved",
     );
     for (const a of affected) {
-      await tx`
-        insert into events (workspace_id, asset_id, type, actor_role, data)
-        values (${workspaceId}, ${a.id}, 'offer_changed', 'reviewer', ${tx.json({ revisionId, revision })})
-      `;
+      await logEvent(tx, workspaceId, { type: "offer_changed", actor: "reviewer", assetId: a.id, data: { revisionId, revision } });
     }
     const refs = affected.map((a) => a.ref);
-    await tx`
-      insert into events (workspace_id, type, actor_role, data)
-      values (${workspaceId}, 'offer_revised', 'reviewer', ${tx.json({ revisionId, revision, offerId, affected: refs })})
-    `;
+    await logEvent(tx, workspaceId, { type: "offer_revised", actor: "reviewer", data: { revisionId, revision, offerId, affected: refs } });
     return { ok: true, revisionId, revision, affected: refs };
   })) as AddRevisionResult;
 }

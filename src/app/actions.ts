@@ -6,6 +6,7 @@ import { MAX_COMMENT_CHARS, MAX_COPY_CHARS, MAX_NOTE_CHARS } from "@/lib/checks"
 import { cleanBody } from "@/lib/copy";
 import { loadAsset, loadRevisions, type AssetView, type Executor } from "@/lib/data";
 import { db } from "@/lib/db";
+import { logEvent } from "@/lib/events";
 import { fingerprint } from "@/lib/fingerprint";
 import { formatDate } from "@/lib/format";
 import { addRevision, type AddRevisionResult } from "@/lib/offer-sheet";
@@ -15,32 +16,25 @@ import {
   MAX_MOVES_PER_AD,
   MAX_TITLE_CHARS,
   MAX_VERSIONS_PER_AD,
-  PLACEMENTS,
   SUPPORTED_PRODUCT,
   coverageText,
-  isIsoDate,
+  isDemoDate,
+  isPlacement,
   parsePercent,
   termsOn,
 } from "@/lib/offers";
 import { DEMO_REVIEWER } from "@/lib/seed";
 import { refuseDecision, type DecisionKind } from "@/lib/status";
-import { ROLE_COOKIE, getRole, getWorkspaceId, resetWorkspace } from "@/lib/workspace";
+import { AD_PATH, ROLE_COOKIE, cookieSettings } from "@/lib/session";
+import { getRole, getWorkspaceId, resetWorkspace } from "@/lib/workspace";
 
 export async function switchRole(formData: FormData): Promise<void> {
   const role = formData.get("role") === "marketer" ? "marketer" : "reviewer";
-  (await cookies()).set({
-    name: ROLE_COOKIE,
-    value: role,
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 14,
-  });
+  (await cookies()).set({ name: ROLE_COOKIE, value: role, ...cookieSettings() });
   // Stay on the same ad when the switch was made from an ad's page. Only
   // these two fixed shapes are followed, never an address from the form.
   const next = formData.get("next");
-  if (typeof next === "string" && (/^\/ads\/AD-\d{1,6}$/.test(next) || next === "/offers")) redirect(next);
+  if (typeof next === "string" && (AD_PATH.test(next) || next === "/offers")) redirect(next);
   redirect(role === "marketer" ? "/marketer" : "/");
 }
 
@@ -177,16 +171,18 @@ export async function decide(_prev: FormState, formData: FormData): Promise<Form
                 ${comment}, 'reviewer')
       `;
     }
-    await tx`
-      insert into events (workspace_id, asset_id, version_id, type, actor_role, data)
-      values (${workspaceId}, ${asset.id}, ${asset.latest.id},
-              ${kind === "approve" ? "approved" : "changes_requested"}, 'reviewer',
-              ${tx.json({
-                version: asset.latest.number,
-                mismatches: asset.analysis?.mismatches ?? 0,
-                approvedWithOpenMismatch: kind === "approve" && (asset.analysis?.mismatches ?? 0) > 0,
-              })})
-    `;
+    await logEvent(tx, workspaceId, {
+      type: kind === "approve" ? "approved" : "changes_requested",
+      actor: "reviewer",
+      assetId: asset.id,
+      versionId: asset.latest.id,
+      data: {
+        version: asset.latest.number,
+        mismatches: asset.analysis?.mismatches ?? 0,
+        // Kept for audit: an approval made with a mismatch on screen.
+        approvedWithOpenMismatch: kind === "approve" && (asset.analysis?.mismatches ?? 0) > 0,
+      },
+    });
     return null;
   });
   if (error) return { error };
@@ -220,6 +216,28 @@ async function wordingRecord(
   return { state, notes: state && Number.isInteger(data?.notes) ? (data!.notes as number) : state ? 0 : null };
 }
 
+/**
+ * Stores a new version of an ad and returns its id. A version's text is never
+ * changed afterwards: an edit is another version. If this exact text went
+ * through the marketer's wording check for the same terms and placement, what
+ * the check showed is kept with the version, so the reviewer can be told.
+ */
+async function insertVersion(
+  tx: Executor,
+  workspaceId: string,
+  v: { assetId: string; number: number; body: string; note: string; offerRevisionId: string | null; placement: string },
+): Promise<string> {
+  const fp = fingerprint(v.body);
+  const checked = await wordingRecord(tx, workspaceId, fp, v.offerRevisionId, v.placement);
+  const [version] = await tx`
+    insert into versions (asset_id, number, body, fingerprint, note, wording_state, wording_notes, wording_revision_id, wording_placement)
+    values (${v.assetId}, ${v.number}, ${v.body}, ${fp}, ${v.note || null}, ${checked.state}, ${checked.notes},
+            ${checked.state ? v.offerRevisionId : null}, ${checked.state ? v.placement : null})
+    returning id
+  `;
+  return version.id as string;
+}
+
 export async function submitAd(_prev: FormState, formData: FormData): Promise<FormState> {
   const affiliateId = text(formData.get("affiliateId")).slice(0, 40);
   const offerId = text(formData.get("offerId")).slice(0, 40);
@@ -230,8 +248,8 @@ export async function submitAd(_prev: FormState, formData: FormData): Promise<Fo
   const note = text(formData.get("note")).trim();
 
   if ((await getRole()) !== "marketer") return { error: "Switch to the Marketer view to submit an ad." };
-  if (!(PLACEMENTS as readonly string[]).includes(placement)) return { error: "Choose where the ad will run." };
-  if (!isIsoDate(plannedDate) || plannedDate < "2026-01-01" || plannedDate > "2028-12-31") {
+  if (!isPlacement(placement)) return { error: "Choose where the ad will run." };
+  if (!isDemoDate(plannedDate)) {
     return { error: "Enter a planned publication date between 2026 and 2028." };
   }
   if (!title || title.length > MAX_TITLE_CHARS) return { error: `Give the ad a short name, up to ${MAX_TITLE_CHARS} characters.` };
@@ -241,6 +259,10 @@ export async function submitAd(_prev: FormState, formData: FormData): Promise<Fo
 
   const workspaceId = await getWorkspaceId();
   const sql = db();
+  // The next reference follows the highest one in the workspace; 1043 is the
+  // highest seeded ad. It is read outside the transaction, so two submissions
+  // at the same moment can pick the same number: the unique index refuses the
+  // second, and the catch below asks the marketer to submit again.
   const [known] = await sql`
     select (select count(*) from affiliates where id = ${affiliateId})::int as affiliate,
            (select count(*) from offers where id = ${offerId})::int as offer,
@@ -263,22 +285,20 @@ export async function submitAd(_prev: FormState, formData: FormData): Promise<Fo
 
   try {
     await sql.begin(async (tx) => {
-      const checked = await wordingRecord(tx, workspaceId, fingerprint(body), terms?.revisionId ?? null, placement);
       const [asset] = await tx`
         insert into assets (workspace_id, ref, title, affiliate_id, offer_id, placement, planned_date)
         values (${workspaceId}, ${ref}, ${title}, ${affiliateId}, ${offerId}, ${placement}, ${plannedDate})
         returning id
       `;
-      const [version] = await tx`
-        insert into versions (asset_id, number, body, fingerprint, note, wording_state, wording_notes, wording_revision_id, wording_placement)
-        values (${asset.id}, 1, ${body}, ${fingerprint(body)}, ${note || null}, ${checked.state}, ${checked.notes},
-                ${checked.state ? (terms?.revisionId ?? null) : null}, ${checked.state ? placement : null})
-        returning id
-      `;
-      await tx`
-        insert into events (workspace_id, asset_id, version_id, type, actor_role, data)
-        values (${workspaceId}, ${asset.id}, ${version.id}, 'submitted', 'marketer', ${tx.json({ version: 1 })})
-      `;
+      const versionId = await insertVersion(tx, workspaceId, {
+        assetId: asset.id,
+        number: 1,
+        body,
+        note,
+        offerRevisionId: terms?.revisionId ?? null,
+        placement,
+      });
+      await logEvent(tx, workspaceId, { type: "submitted", actor: "marketer", assetId: asset.id, versionId, data: { version: 1 } });
     });
   } catch (e) {
     if (isUniqueViolation(e)) return { error: "Another submission arrived at the same moment. Submit again." };
@@ -310,17 +330,15 @@ export async function submitRevision(_prev: FormState, formData: FormData): Prom
       if (body === asset.latest.body) return `The text is the same as version ${asset.latest.number}. Change it first.`;
       if (asset.versions.length >= MAX_VERSIONS_PER_AD) return "This ad has reached the demo's version limit.";
       const number = asset.latest.number + 1;
-      const checked = await wordingRecord(tx, workspaceId, fingerprint(body), asset.terms?.revisionId ?? null, asset.placement);
-      const [version] = await tx`
-        insert into versions (asset_id, number, body, fingerprint, note, wording_state, wording_notes, wording_revision_id, wording_placement)
-        values (${asset.id}, ${number}, ${body}, ${fingerprint(body)}, ${note || null}, ${checked.state}, ${checked.notes},
-                ${checked.state ? (asset.terms?.revisionId ?? null) : null}, ${checked.state ? asset.placement : null})
-        returning id
-      `;
-      await tx`
-        insert into events (workspace_id, asset_id, version_id, type, actor_role, data)
-        values (${workspaceId}, ${asset.id}, ${version.id}, 'resubmitted', 'marketer', ${tx.json({ version: number })})
-      `;
+      const versionId = await insertVersion(tx, workspaceId, {
+        assetId: asset.id,
+        number,
+        body,
+        note,
+        offerRevisionId: asset.terms?.revisionId ?? null,
+        placement: asset.placement,
+      });
+      await logEvent(tx, workspaceId, { type: "resubmitted", actor: "marketer", assetId: asset.id, versionId, data: { version: number } });
       return null;
     });
   } catch (e) {
@@ -337,8 +355,8 @@ export async function moveAd(_prev: FormState, formData: FormData): Promise<Form
   const placement = text(formData.get("placement"));
 
   if ((await getRole()) !== "marketer") return { error: "Switch to the Marketer view to move an ad." };
-  if (!(PLACEMENTS as readonly string[]).includes(placement)) return { error: "Choose where the ad will run." };
-  if (!isIsoDate(plannedDate) || plannedDate < "2026-01-01" || plannedDate > "2028-12-31") {
+  if (!isPlacement(placement)) return { error: "Choose where the ad will run." };
+  if (!isDemoDate(plannedDate)) {
     return { error: "Enter a date between 2026 and 2028." };
   }
   const workspaceId = await getWorkspaceId();
@@ -356,11 +374,12 @@ export async function moveAd(_prev: FormState, formData: FormData): Promise<Form
       update assets set planned_date = ${plannedDate}, placement = ${placement}
       where id = ${asset.id} and workspace_id = ${workspaceId}
     `;
-    await tx`
-      insert into events (workspace_id, asset_id, type, actor_role, data)
-      values (${workspaceId}, ${asset.id}, 'rescheduled', 'marketer',
-              ${tx.json({ from: asset.plannedDate, to: plannedDate, fromPlacement: asset.placement, toPlacement: placement })})
-    `;
+    await logEvent(tx, workspaceId, {
+      type: "rescheduled",
+      actor: "marketer",
+      assetId: asset.id,
+      data: { from: asset.plannedDate, to: plannedDate, fromPlacement: asset.placement, toPlacement: placement },
+    });
     return null;
   });
   if (error) return { error };

@@ -12,11 +12,7 @@ const TITLE: Record<Check["status"], string> = {
   ok: "Matches the offer",
 };
 
-/**
- * The ad's words with the checked claims marked. The copy is untrusted text:
- * it is only ever placed in the page as text, so markup or links inside it
- * show up as the characters the affiliate typed.
- */
+/** A mark that does not come from a code check: a passage the AI found, or text addressed to an AI. */
 export type ExtraMark = { start: number; end: number; tone: "ai" | "instruction"; title: string };
 
 const EXTRA: Record<ExtraMark["tone"], string> = {
@@ -24,6 +20,11 @@ const EXTRA: Record<ExtraMark["tone"], string> = {
   instruction: "bg-amber-100 text-amber-950 underline decoration-amber-600 decoration-wavy decoration-1 underline-offset-4",
 };
 
+/**
+ * The ad's words with the checked claims marked. The copy is untrusted text:
+ * it is only ever placed in the page as text, so markup or links inside it
+ * show up as the characters the affiliate typed.
+ */
 export function CopyView({ body, checks, extra = [], id }: { body: string; checks: Check[]; extra?: ExtraMark[]; id?: string }) {
   // Code checks take precedence where marks overlap.
   const spans = [

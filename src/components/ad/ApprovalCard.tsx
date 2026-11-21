@@ -37,6 +37,7 @@ export function ApprovalCard({
       </p>
       <p className="mt-2 text-sm text-slate-700">
         Approved by{" "}
+        {/* The approval record carries no reviewer name, so it is read from the stored decision made at the same moment. */}
         {
           asset.decisions.find(
             (d) => d.createdAt === approval.createdAt,

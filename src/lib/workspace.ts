@@ -3,10 +3,9 @@ import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "./db";
 import { resetWorkspaceData, seedWorkspace } from "./seed";
+import { ROLE_COOKIE, WORKSPACE_COOKIE, WORKSPACE_TOKEN } from "./session";
 import type { Role } from "./status";
 
-const WORKSPACE_COOKIE = "cp_ws";
-export const ROLE_COOKIE = "cp_role";
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
@@ -20,7 +19,7 @@ function hashToken(token: string): string {
  */
 export async function getWorkspaceId(): Promise<string> {
   const token = (await cookies()).get(WORKSPACE_COOKIE)?.value;
-  if (!token || !/^[a-f0-9]{64}$/.test(token)) {
+  if (!token || !WORKSPACE_TOKEN.test(token)) {
     throw new Error("No demo workspace cookie. Reload the page.");
   }
   const tokenHash = hashToken(token);

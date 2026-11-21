@@ -1,6 +1,5 @@
 import "server-only";
-import type postgres from "postgres";
-import { db } from "./db";
+import { db, type Executor } from "./db";
 import type { WordingRecord } from "./ai/wording";
 import { analyzeCopy, type CopyAnalysis, type OfferTerms } from "./checks";
 import { findInstructionText, type InstructionFinding } from "./injection";
@@ -86,8 +85,7 @@ function toTerms(r: RevisionRow): OfferTerms {
 
 export type { RevisionTerms };
 
-/** The pool, or a transaction: reads inside a transaction see what that transaction has locked. */
-export type Executor = postgres.Sql | postgres.TransactionSql;
+export type { Executor };
 
 /**
  * Every offer revision this visitor's demo can see: the shared reference
@@ -247,6 +245,12 @@ export async function loadAssets(workspaceId: string, sql: Executor = db()): Pro
   return out.sort((x, y) => y.lastActivityAt.localeCompare(x.lastActivityAt));
 }
 
+/**
+ * One ad. It loads the workspace's ads and picks one, so there is a single
+ * code path from rows to an ad with its checks and status, whether a page or
+ * a locked write asks. A workspace holds at most 40 ads, so the extra rows
+ * cost little. With real volume this would become a query for one ad.
+ */
 export async function loadAsset(workspaceId: string, ref: string, sql: Executor = db()): Promise<AssetView | null> {
   const all = await loadAssets(workspaceId, sql);
   return all.find((a) => a.ref === ref) ?? null;

@@ -5,6 +5,7 @@ import { submitRevision, type FormState } from "@/app/actions";
 import { MAX_NOTE_CHARS, type OfferTerms } from "@/lib/checks";
 import { CopyEditor } from "./CopyEditor";
 import { WordingCheck } from "./WordingCheck";
+import { FormError, TEXT_BOX } from "./form";
 
 export function ReviseForm({
   adRef,
@@ -52,14 +53,10 @@ export function ReviseForm({
           name="note"
           rows={2}
           maxLength={MAX_NOTE_CHARS}
-          className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-600"
+          className={TEXT_BOX}
         />
       </label>
-      {state.error ? (
-        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">
-          {state.error}
-        </p>
-      ) : null}
+      <FormError error={state.error} />
       <button
         type="submit"
         disabled={pending || unchanged}

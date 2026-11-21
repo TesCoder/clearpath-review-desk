@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-
-const WORKSPACE_COOKIE = "cp_ws";
+import { WORKSPACE_COOKIE, WORKSPACE_TOKEN, cookieSettings } from "./lib/session";
 
 function randomHex(bytes: number): string {
   const buf = new Uint8Array(bytes);
@@ -16,6 +15,9 @@ function randomHex(bytes: number): string {
 //    text; even if some of it were ever rendered as markup, the browser would
 //    refuse to run inline script or load anything from another origin.
 export function proxy(request: NextRequest) {
+  // A fresh value for every response. Only script tags that carry it may run,
+  // so text that reaches the page cannot become script. Base64 is the form
+  // the policy header expects.
   const nonce = btoa(randomHex(16));
   const isDev = process.env.NODE_ENV === "development";
   const csp = [
@@ -37,7 +39,7 @@ export function proxy(request: NextRequest) {
   requestHeaders.set("Content-Security-Policy", csp);
 
   const existing = request.cookies.get(WORKSPACE_COOKIE)?.value;
-  const hasWorkspace = Boolean(existing && /^[a-f0-9]{64}$/.test(existing));
+  const hasWorkspace = Boolean(existing && WORKSPACE_TOKEN.test(existing));
   const token = hasWorkspace ? null : randomHex(32);
   if (token) {
     // Make the new cookie visible to this same request's render.
@@ -53,15 +55,7 @@ export function proxy(request: NextRequest) {
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("Referrer-Policy", "no-referrer");
   if (token) {
-    response.cookies.set({
-      name: WORKSPACE_COOKIE,
-      value: token,
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 14,
-    });
+    response.cookies.set({ name: WORKSPACE_COOKIE, value: token, ...cookieSettings() });
   }
   return response;
 }

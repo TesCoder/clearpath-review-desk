@@ -18,7 +18,7 @@ import { SwitchTo } from "@/components/SwitchTo";
 import { findingsBeyondChecks } from "@/lib/ai/display";
 import { getStoredReview } from "@/lib/ai/store";
 import type { AiFinding } from "@/lib/ai/types";
-import { MAX_COMMENT_CHARS, draftRequest } from "@/lib/checks";
+import { MAX_ANCHOR_CHARS, MAX_COMMENT_CHARS, draftRequest } from "@/lib/checks";
 import { loadAsset, loadRevisions, type AssetView } from "@/lib/data";
 import { shortFingerprint } from "@/lib/fingerprint";
 import { formatDate, timeAgo, withArticle } from "@/lib/format";
@@ -51,7 +51,7 @@ function anchorsFor(a: AssetView, aiOnly: AiFinding[]): Anchor[] {
     });
   }
   for (const f of aiOnly) {
-    if (seen.has(f.quote) || f.quote.length > 200) continue;
+    if (seen.has(f.quote) || f.quote.length > MAX_ANCHOR_CHARS) continue;
     seen.add(f.quote);
     out.push({
       quote: f.quote,
@@ -107,6 +107,18 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
         )
       : [];
   const home = role === "marketer" ? "/marketer" : "/";
+  // What the marketer's edit form needs, wherever on the page it appears.
+  const revise = {
+    adRef: asset.ref,
+    currentBody: latest.body,
+    baseFingerprint: latest.fingerprint,
+    nextVersion: latest.number + 1,
+    terms,
+    dateLabel: formatDate(asset.plannedDate),
+    offerId: asset.offer.id,
+    plannedDate: asset.plannedDate,
+    placement: asset.placement,
+  };
   const covered = coverageText(revisions, asset.offer.id);
 
   // The request and the fix form. The marketer gets it first on the page;
@@ -143,18 +155,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
             <h3 className="mb-2 text-sm font-semibold text-slate-900">
               Fix the ad and send it back
             </h3>
-            <ReviseForm
-              adRef={asset.ref}
-              currentBody={latest.body}
-                    baseFingerprint={latest.fingerprint}
-              nextVersion={latest.number + 1}
-              terms={terms}
-              dateLabel={formatDate(asset.plannedDate)}
-                offerId={asset.offer.id}
-                plannedDate={asset.plannedDate}
-                placement={asset.placement}
-              afterApproval={false}
-            />
+            <ReviseForm {...revise} afterApproval={false} />
           </div>
         )}
       </Card>
@@ -266,18 +267,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
           ) : null}
           {role === "marketer" && asset.status === "offer_changed" && terms ? (
             <Card title="Change the text for the new terms" tone="attention">
-              <ReviseForm
-                adRef={asset.ref}
-                currentBody={latest.body}
-                baseFingerprint={latest.fingerprint}
-                nextVersion={latest.number + 1}
-                terms={terms}
-                dateLabel={formatDate(asset.plannedDate)}
-                offerId={asset.offer.id}
-                plannedDate={asset.plannedDate}
-                placement={asset.placement}
-                afterApproval={false}
-              />
+              <ReviseForm {...revise} afterApproval={false} />
             </Card>
           ) : null}
           {role === "reviewer" ? requestCard : null}
@@ -295,18 +285,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
                 />
               </Card>
               <Card title="Change the text">
-                <ReviseForm
-                  adRef={asset.ref}
-                  currentBody={latest.body}
-                    baseFingerprint={latest.fingerprint}
-                  nextVersion={latest.number + 1}
-                  terms={terms}
-                  dateLabel={formatDate(asset.plannedDate)}
-                offerId={asset.offer.id}
-                plannedDate={asset.plannedDate}
-                placement={asset.placement}
-                  afterApproval
-                />
+                <ReviseForm {...revise} afterApproval />
               </Card>
             </>
           ) : null}

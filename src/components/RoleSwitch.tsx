@@ -1,9 +1,9 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { AD_PATH } from "@/lib/session";
 import type { Role } from "@/lib/status";
 
-const AD_PAGE = /^\/ads\/AD-\d{1,6}$/;
 
 const HINT: Record<Role, { list: string; ad: string }> = {
   reviewer: {
@@ -19,10 +19,10 @@ const HINT: Record<Role, { list: string; ad: string }> = {
 /** Carries the current ad through a role switch, so the same ad opens in the other view. */
 export function StayOnAd() {
   const pathname = usePathname();
-  return AD_PAGE.test(pathname) ? <input type="hidden" name="next" value={pathname} /> : null;
+  return AD_PATH.test(pathname) ? <input type="hidden" name="next" value={pathname} /> : null;
 }
 
 export function RoleHint({ role }: { role: Role }) {
   const pathname = usePathname();
-  return <>{AD_PAGE.test(pathname) ? HINT[role].ad : HINT[role].list}</>;
+  return <>{AD_PATH.test(pathname) ? HINT[role].ad : HINT[role].list}</>;
 }

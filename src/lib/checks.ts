@@ -1,27 +1,27 @@
 // Code-only checks on ad copy. No model is involved anywhere in this file.
 //
-// Decision-logic rounds: 5 (llm-first-decision-architecture.mdc section 6).
-// Decision counted: whether a claim in ad copy "matches" the offer, "does not
-// match", or "needs the reviewer".
-//   Round 1, 2026-11-20: the approver's test of the submit form found a rate
-//     written in words read as nothing to compare. Added: percentages written
-//     out in words.
-//   Round 2, 2026-11-20: an independent review found more forms read wrongly
-//     or not at all (ranges, unusual digits and percent signs, "no-fee").
-//     Stopped there. The approver chose the split the same day ("Yes, narrow
-//     it"): exact forms in code, everything else held for the reviewer.
-//   Round 3, 2026-11-20: that narrowing, below. It adds no accepted form.
-//   Round 5, 2026-11-20: a second review found "The maximum APR is 6.99%"
-//     given the edit "8.99%" and then shown with no flags, and an interest
-//     rate edited as if it were the APR. Narrowed: an edit is suggested only
-//     when the ad states the figure as its lowest rate; a stated maximum or
-//     minimum that differs from the offer's is flagged or held, never
-//     matched; in a sentence about interest only "<figure> APR" is an APR.
-//     It adds no accepted form.
-//   Round 4, 2026-11-20: an external review found "0% prepayment fee" compared
-//     with the origination fee and offered "Change to: 2%". Narrowed: a fee
-//     figure is compared only when the ad names the origination fee. It adds
-//     no accepted form.
+// What this file decides: whether a claim in ad copy "matches" the offer,
+// "does not match", or "needs the reviewer".
+//
+// It has been corrected five times, each time after a test or a review found
+// a misread. After the second, the approach changed: instead of teaching the
+// code more wording, it reads a short list of exact forms and holds
+// everything else open for a person. Rounds 3 to 5 each made it read less.
+//   1. A manual test of the submit form: a rate written in words was read as
+//      nothing to compare. Added percentages written out in words.
+//   2. An independent review: ranges, unusual digits and percent signs, and
+//      "no-fee" were read wrongly or not at all. This is where the approach
+//      changed to exact forms in code, everything else held for the reviewer.
+//   3. That narrowing. It adds no form.
+//   4. A review found "0% prepayment fee" compared with the origination fee
+//      and offered "Change to: 2%". Now a fee figure is compared only when
+//      the ad names the origination fee.
+//   5. A review found "The maximum APR is 6.99%" given the edit "8.99%" and
+//      then shown with no flags, and an interest rate edited as if it were
+//      the APR. Now an edit is suggested only when the ad states the figure
+//      as its lowest rate; a stated maximum or minimum that differs from the
+//      offer's is flagged or held, never matched; and in a sentence about
+//      interest only "<figure> APR" is an APR.
 //
 // The only forms this file reads as a figure (the approved forms):
 //   1. digits, an optional decimal part, at most one space, then "%",
@@ -35,14 +35,16 @@
 // Everything else is held open as "needs the reviewer": any other number in a
 // sentence about rates, fees or percentages, and any sentence that mentions a
 // rate or a fee with no figure this file can read. Nothing is matched on a
-// guess, and nothing is passed over silently. Do not add a form here without
-// the approver's word.
+// guess, and nothing is passed over silently. Adding a form here is a product
+// decision, not a bug fix: each form that was added loosely became a wrong match.
 //
 // What code decides: explicit figures in the approved forms above, compared
 // with the offer sheet. Looser wording ("single-digit rates", "we waive the
 // fee") is shown to the reviewer as unread, and left to the AI claim finder
 // and the reviewer to judge. A percentage this file cannot classify is still shown to
 // the reviewer, so an explicit number never disappears silently.
+
+import { formatDate, percent } from "./format";
 
 export type OfferTerms = {
   revisionId: string;
@@ -82,7 +84,6 @@ export type Check = {
   status: CheckStatus;
   message: string;
   /** The value on the offer sheet the claim was compared with, as text. */
-  offerValue: string | null;
   /** A replacement the marketer could use, when one is obvious. */
   suggestion: string | null;
 };
@@ -225,6 +226,8 @@ const NO_FEE =
 const UNITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
 const TENS = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
 const DIGIT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+// The units are listed longest first ("nineteen" before "nine"), so the
+// pattern never stops at a shorter word that begins a longer one.
 const WORD_PERCENT = new RegExp(
   `\\b((?:${TENS.join("|")})(?:[\\s-](?:${UNITS.slice(1, 10).join("|")}))?|${[...UNITS].reverse().join("|")})` +
     `(?:\\s+point((?:\\s+(?:${DIGIT_WORDS.join("|")}|oh))+))?\\s+(?:percent|per cent)\\b`,
@@ -261,6 +264,11 @@ function sentenceBounds(norm: string, at: number): [number, number] {
   return [start, end];
 }
 
+/**
+ * How many characters lie between a figure and the closest match of a word
+ * pattern in its sentence, or Infinity when the sentence has none. `re` is a
+ * shared global pattern, so its position is reset before the search.
+ */
 function nearest(re: RegExp, sentence: string, at: number): number {
   let best = Infinity;
   re.lastIndex = 0;
@@ -324,6 +332,8 @@ export function findClaims(text: string): Claim[] {
     const rate = nearest(RATE_WORDS, sentence, s - ss);
     const fee = nearest(FEE_WORDS, sentence, s - ss);
     let kind: ClaimKind = "unclassified";
+    // The closer word decides. On a tie the figure is read as a rate: a wrong
+    // rate is the costlier miss, and a rate out of range is always flagged.
     if (rate !== Infinity || fee !== Infinity) kind = fee < rate ? "fee" : "apr";
     // The offer sheet states one fee, the origination fee. A fee figure is
     // compared with it only when the ad plainly names that fee. A prepayment,
@@ -419,29 +429,18 @@ function withNumber(claim: Claim, value: string): string {
   return /apr\s*$/i.test(claim.quote) ? `${value}% APR` : `${value}%`;
 }
 
-function pct(n: number): string {
-  return `${n.toFixed(2)}%`;
-}
-
-function longDate(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${months[m - 1]} ${d}, ${y}`;
-}
-
 export function checkClaim(claim: Claim, terms: OfferTerms): Check {
-  const since = `from ${longDate(terms.effectiveFrom)}`;
+  const since = `from ${formatDate(terms.effectiveFrom)}`;
   if (claim.kind === "apr" && claim.value !== null) {
     if (terms.aprMin === null || terms.aprMax === null) {
       return {
         claim,
         status: "needs_reviewer",
-        message: `The ad states ${pct(claim.value)}. The ${terms.campaign} offer sheet lists no APR range to compare it with.`,
-        offerValue: null,
+        message: `The ad states ${percent(claim.value)}. The ${terms.campaign} offer sheet lists no APR range to compare it with.`,
         suggestion: null,
       };
     }
-    const range = `${pct(terms.aprMin)} to ${pct(terms.aprMax)}`;
+    const range = `${percent(terms.aprMin)} to ${percent(terms.aprMax)}`;
     if (claim.endpoint === "maximum" && claim.value !== terms.aprMax && claim.value <= terms.aprMax) {
       // "The maximum APR is 6.99%" or "... is 12.99%": a stated maximum that is
       // not the offer's. Below the floor it is a mismatch; inside the range the
@@ -451,8 +450,7 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
       return {
         claim,
         status: claim.value < terms.aprMin ? "mismatch" : "needs_reviewer",
-        message: `The ad states a maximum APR of ${pct(claim.value)}. The APR range on the ${terms.campaign} offer ${since} is ${range}.${claim.value < terms.aprMin ? "" : " Please read it."}`,
-        offerValue: range,
+        message: `The ad states a maximum APR of ${percent(claim.value)}. The APR range on the ${terms.campaign} offer ${since} is ${range}.${claim.value < terms.aprMin ? "" : " Please read it."}`,
         suggestion: null,
       };
     }
@@ -460,8 +458,7 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
       return {
         claim,
         status: "mismatch",
-        message: `The ad says ${pct(claim.value)} APR. The lowest APR on the ${terms.campaign} offer ${since} is ${pct(terms.aprMin)}.`,
-        offerValue: pct(terms.aprMin),
+        message: `The ad says ${percent(claim.value)} APR. The lowest APR on the ${terms.campaign} offer ${since} is ${percent(terms.aprMin)}.`,
         // An edit is suggested only when the ad states the figure as its lowest
         // rate ("from 6.99% APR"). Then the offer's lowest rate is the field it
         // corresponds to. For any other wording the range is shown and the
@@ -473,8 +470,7 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
       return {
         claim,
         status: "mismatch",
-        message: `The ad says ${pct(claim.value)} APR. The highest APR on the ${terms.campaign} offer ${since} is ${pct(terms.aprMax)}.`,
-        offerValue: pct(terms.aprMax),
+        message: `The ad says ${percent(claim.value)} APR. The highest APR on the ${terms.campaign} offer ${since} is ${percent(terms.aprMax)}.`,
         suggestion: null,
       };
     }
@@ -482,16 +478,14 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
       return {
         claim,
         status: "needs_reviewer",
-        message: `The ad states a lowest APR of ${pct(claim.value)}. The APR range on the ${terms.campaign} offer ${since} is ${range}. Please read it.`,
-        offerValue: range,
+        message: `The ad states a lowest APR of ${percent(claim.value)}. The APR range on the ${terms.campaign} offer ${since} is ${range}. Please read it.`,
         suggestion: null,
       };
     }
     return {
       claim,
       status: "ok",
-      message: `${pct(claim.value)} APR is within the offer's range of ${pct(terms.aprMin)} to ${pct(terms.aprMax)}.`,
-      offerValue: `${pct(terms.aprMin)} to ${pct(terms.aprMax)}`,
+      message: `${percent(claim.value)} APR is within the offer's range of ${percent(terms.aprMin)} to ${percent(terms.aprMax)}.`,
       suggestion: null,
     };
   }
@@ -500,8 +494,7 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
       return {
         claim,
         status: "needs_reviewer",
-        message: `The ad states a ${pct(claim.value)} fee. The ${terms.campaign} offer sheet lists no origination fee to compare it with.`,
-        offerValue: null,
+        message: `The ad states a ${percent(claim.value)} fee. The ${terms.campaign} offer sheet lists no origination fee to compare it with.`,
         suggestion: null,
       };
     }
@@ -509,16 +502,14 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
       return {
         claim,
         status: "mismatch",
-        message: `The ad says a ${pct(claim.value)} fee. The ${terms.campaign} offer ${since} lists a ${pct(terms.feePct)} origination fee.`,
-        offerValue: pct(terms.feePct),
+        message: `The ad says a ${percent(claim.value)} fee. The ${terms.campaign} offer ${since} lists a ${percent(terms.feePct)} origination fee.`,
         suggestion: withNumber(claim, String(terms.feePct)),
       };
     }
     return {
       claim,
       status: "ok",
-      message: `A ${pct(claim.value)} fee matches the offer's origination fee.`,
-      offerValue: pct(terms.feePct),
+      message: `A ${percent(claim.value)} fee matches the offer's origination fee.`,
       suggestion: null,
     };
   }
@@ -527,8 +518,7 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
       return {
         claim,
         status: "mismatch",
-        message: `The ad says "${claim.quote}". The ${terms.campaign} offer ${since} lists a ${pct(terms.feePct)} origination fee.`,
-        offerValue: pct(terms.feePct),
+        message: `The ad says "${claim.quote}". The ${terms.campaign} offer ${since} lists a ${percent(terms.feePct)} origination fee.`,
         suggestion: `A ${String(terms.feePct)}% origination fee applies`,
       };
     }
@@ -539,7 +529,6 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         terms.feePct === 0
           ? "The offer sheet lists no origination fee."
           : `The ${terms.campaign} offer sheet does not state an origination fee, so "${claim.quote}" cannot be confirmed from it.`,
-      offerValue: terms.feePct === 0 ? "0%" : null,
       suggestion: null,
     };
   }
@@ -549,15 +538,14 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
     message: claim.heldSentence
       ? `"${claim.quote}" mentions a rate or a fee that the automatic check could not compare with the offer. Please read it.`
       : `The ad states "${claim.quote}" and the automatic check could not read it as a rate or a fee to compare. Please read it.`,
-    offerValue: null,
     suggestion: null,
   };
 }
 
 /**
  * The request the app drafts for a claim that does not match the offer. It is
- * about that one claim and nothing else, which is what lets the revision view
- * say "Resolved" when a reviewer sent it unedited.
+ * about that one claim and nothing else. When a reviewer sends it unedited,
+ * the revision view knows exactly which figure was asked for.
  */
 export function draftRequest(check: Check): string {
   if (check.status !== "mismatch") return "";
@@ -570,7 +558,7 @@ export type CopyAnalysis = {
   checks: Check[];
   hidden: HiddenTextFinding[];
   mismatches: number;
-  /** Mismatches plus hidden-text findings plus unclassified numbers. */
+  /** Everything still open for the reviewer: mismatches, every claim held as "needs the reviewer", and hidden-text findings. */
   openFlags: number;
 };
 
@@ -602,3 +590,5 @@ export function analyzeCopy(text: string, terms: OfferTerms): CopyAnalysis {
 export const MAX_COPY_CHARS = 2000;
 export const MAX_NOTE_CHARS = 500;
 export const MAX_COMMENT_CHARS = 1000;
+/** The longest passage a request can be anchored to, whether picked from a chip or selected in the ad. */
+export const MAX_ANCHOR_CHARS = 200;

@@ -4,77 +4,68 @@ import type { AssetView, RevisionTerms } from "@/lib/data";
 import { formatDate, formatMoment, withArticle } from "@/lib/format";
 import type { DecisionRecord, Role } from "@/lib/status";
 
+const TONE = {
+  good: ["border-emerald-200 bg-emerald-50", "text-emerald-900"],
+  plain: ["border-slate-300 bg-white", "text-slate-800"],
+} as const;
+
+function Notice({ tone, children }: { tone: keyof typeof TONE; children: React.ReactNode }) {
+  const [frame, text] = TONE[tone];
+  return (
+    <div className={`mt-4 flex flex-wrap items-center gap-3 rounded-md border ${frame} px-4 py-2 text-sm ${text}`} role="status">
+      {children}
+    </div>
+  );
+}
+
 /**
  * The line shown right after an action, with a button that opens the same ad
  * in the other role. `done` comes from the address the action redirected to.
  */
 export function DoneNotice({ done, asset }: { done: string | string[] | undefined; asset: AssetView }) {
-  const { latest } = asset;
-  return (
-    <>
-      {done === "approved" ? (
-        <div
-          className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900"
-          role="status"
-        >
-          <span>Approved. The marketer can now see the approved copy.</span>
-          <SwitchTo
-            role="marketer"
-            adRef={asset.ref}
-            label="See it as the marketer"
-          />
-          <Link href="/" className="underline">
-            Back to the queue
-          </Link>
-        </div>
-      ) : null}
-      {done === "requested" ? (
-        <div
-          className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm text-slate-800"
-          role="status"
-        >
-          <span>Request sent. The ad is with the marketer.</span>
-          <SwitchTo
-            role="marketer"
-            adRef={asset.ref}
-            label={`Open ${asset.ref} as the marketer`}
-          />
-          <Link href="/" className="underline">
-            Back to the queue
-          </Link>
-        </div>
-      ) : null}
-      {done === "submitted" || done === "resubmitted" ? (
-        <div
-          className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900"
-          role="status"
-        >
-          <span>Sent for review as version {latest.number}.</span>
-          <SwitchTo
-            role="reviewer"
-            adRef={asset.ref}
-            label={`Review version ${latest.number} as the reviewer`}
-          />
-        </div>
-      ) : null}
-      {done === "moved" ? (
-        <div
-          className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm text-slate-800"
-          role="status"
-        >
-          <span>
-            Moved to {formatDate(asset.plannedDate)} as{" "}
-            {withArticle(asset.placement)}. It is back in the review queue.
-          </span>
-          <SwitchTo
-            role="reviewer"
-            adRef={asset.ref}
-            label="Review it as the reviewer"
-          />
-        </div>
-      ) : null}
-    </>
+  const { latest, ref } = asset;
+  const backToQueue = (
+    <Link href="/" className="underline">
+      Back to the queue
+    </Link>
   );
+  if (done === "approved") {
+    return (
+      <Notice tone="good">
+        <span>Approved. The marketer can now see the approved copy.</span>
+        <SwitchTo role="marketer" adRef={ref} label="See it as the marketer" />
+        {backToQueue}
+      </Notice>
+    );
+  }
+  if (done === "requested") {
+    return (
+      <Notice tone="plain">
+        <span>Request sent. The ad is with the marketer.</span>
+        <SwitchTo role="marketer" adRef={ref} label={`Open ${ref} as the marketer`} />
+        {backToQueue}
+      </Notice>
+    );
+  }
+  if (done === "submitted" || done === "resubmitted") {
+    return (
+      <Notice tone="good">
+        <span>Sent for review as version {latest.number}.</span>
+        <SwitchTo role="reviewer" adRef={ref} label={`Review version ${latest.number} as the reviewer`} />
+      </Notice>
+    );
+  }
+  if (done === "moved") {
+    return (
+      <Notice tone="plain">
+        <span>
+          Moved to {formatDate(asset.plannedDate)} as {withArticle(asset.placement)}. It is back in the review queue.
+        </span>
+        <SwitchTo role="reviewer" adRef={ref} label="Review it as the reviewer" />
+      </Notice>
+    );
+  }
+  return null;
 }
 
 /** Why an ad that was approved is back in review: it was moved, its offer changed, or its text was edited. */

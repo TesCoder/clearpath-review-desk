@@ -1,5 +1,7 @@
+import { Fragment } from "react";
 import type { AssetView } from "@/lib/data";
 import { formatDate } from "@/lib/format";
+import { termRows } from "@/lib/offers";
 import { Badge, CHECK, Card } from "./ui";
 
 /** The offer revision in effect on the ad's planned publication date, with its dates and source. */
@@ -20,28 +22,12 @@ export function OfferTermsCard({ asset }: { asset: AssetView }) {
             {formatDate(asset.plannedDate)}.
           </p>
           <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-            <dt className="text-slate-500">Lowest APR</dt>
-            <dd className="font-medium">
-              {terms.aprMin !== null
-                ? `${terms.aprMin.toFixed(2)}%`
-                : "Not stated"}
-            </dd>
-            <dt className="text-slate-500">Highest APR</dt>
-            <dd className="font-medium">
-              {terms.aprMax !== null
-                ? `${terms.aprMax.toFixed(2)}%`
-                : "Not stated"}
-            </dd>
-            <dt className="text-slate-500">Origination fee</dt>
-            <dd className="font-medium">
-              {terms.feePct !== null ? `${terms.feePct}%` : "Not stated"}
-            </dd>
-            <dt className="text-slate-500">Loan terms</dt>
-            <dd className="font-medium">
-              {terms.termMinMonths !== null
-                ? `${terms.termMinMonths} to ${terms.termMaxMonths} months`
-                : "Not stated"}
-            </dd>
+            {termRows(terms).map((row) => (
+              <Fragment key={row.label}>
+                <dt className="text-slate-500">{row.label}</dt>
+                <dd className="font-medium">{row.value}</dd>
+              </Fragment>
+            ))}
           </dl>
           <p className="mt-3 text-xs text-slate-500">
             Source: {terms.source}

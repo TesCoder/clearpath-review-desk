@@ -6,7 +6,7 @@ import { cleanBody } from "@/lib/copy";
 import { loadRevisions } from "@/lib/data";
 import { db } from "@/lib/db";
 import { fingerprint } from "@/lib/fingerprint";
-import { PLACEMENTS, SUPPORTED_PRODUCT, isIsoDate, termsOn } from "@/lib/offers";
+import { SUPPORTED_PRODUCT, isIsoDate, isPlacement, termsOn } from "@/lib/offers";
 import { isSameOrigin } from "@/lib/request";
 import { getRole, getWorkspaceId } from "@/lib/workspace";
 
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
   if ((await getRole()) !== "marketer") return unavailable("Switch to the Marketer view to check a draft.", 403);
   if (!body) return unavailable("Type or paste the ad copy first.", 400);
   if (body.length > MAX_COPY_CHARS) return unavailable(`Keep the ad copy under ${MAX_COPY_CHARS} characters.`, 400);
-  if (!(PLACEMENTS as readonly string[]).includes(placement) || !isIsoDate(plannedDate)) {
+  if (!isPlacement(placement) || !isIsoDate(plannedDate)) {
     return unavailable("Choose where the ad will run and its publication date first.", 400);
   }
   const sql = db();

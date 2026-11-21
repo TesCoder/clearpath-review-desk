@@ -72,7 +72,12 @@ Find the claims in the ad copy.`;
 
 const clip = (s: unknown, max: number) => (typeof s === "string" ? s.trim().slice(0, max) : "");
 
-/** Where the quoted words are in the copy, or null when they are not there. */
+/**
+ * Where the quoted words are in the copy, or -1 when they are not there. It
+ * looks from the end of the previous finding first, so a phrase that occurs
+ * twice is placed at its second occurrence when the model reports it twice,
+ * and falls back to the whole copy when the model lists findings out of order.
+ */
 function locate(copy: string, quote: string, from: number): number {
   const at = copy.indexOf(quote, from);
   return at >= 0 ? at : copy.indexOf(quote);

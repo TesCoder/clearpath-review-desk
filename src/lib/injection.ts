@@ -4,8 +4,7 @@
 // checked in code, quotes checked word for word, a person approving) do not
 // depend on this list, so it does not need to be complete.
 //
-// Correction rounds on this list: 2 (llm-first-decision-architecture.mdc
-// section 6). The patterns have not changed in either round.
+// This list has been corrected twice. The patterns did not change either time.
 //   1. They also run on the cleaned-up copy of the text that the number check
 //      uses (hidden characters removed, compatibility forms folded), because
 //      a zero-width character or a soft hyphen inside "ignore previous

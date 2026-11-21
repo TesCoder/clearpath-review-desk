@@ -1,21 +1,19 @@
 // What a reviewer needs to know about a revision without rereading the ad:
 // did it answer each earlier request, and did it bring in anything new?
 //
-// Decision-logic rounds: 4 (llm-first-decision-architecture.mdc section 6).
-// Decision counted: what the screen says about an earlier request.
-//   Rounds 1 to 3, 2026-11-20: each narrowed when "Resolved" was shown (a
-//     reworded claim; a two-part request; an unchanged figure elsewhere).
-//   Round 4, 2026-11-20: a second review found two more false "Resolved"
-//     (a different in-range figure than the one requested; the letters "APR"
-//     deleted with the figure left behind). At the approver's direction
-//     ("review it and fix as needed"), with the reviewer and EA both
-//     recommending it, the decision was dropped: the screen no longer says
-//     "Resolved". It reports what the comparison found, in the exact forms
-//     listed in reviewRevision below, and asks the reviewer to confirm
-//     everything else. Do not bring back a verdict without the approver's word.
+// What this file decides: what the screen says about an earlier request.
+//
+// It has been corrected four times. The first three each narrowed when the
+// word "Resolved" was shown wrongly (a reworded claim; a two-part request; an
+// unchanged figure elsewhere in the ad). The fourth found two more (a
+// different in-range figure than the one requested; the letters "APR" deleted
+// with the figure left behind), and the verdict was dropped. The screen no
+// longer says "Resolved". It reports what the comparison found, in the exact
+// forms listed in RequestOutcome below, and asks the reviewer to confirm
+// everything else. Bringing a verdict back would be a product decision.
 
 import { analyzeCopy, draftRequest, normalizeWithMap, type Check, type ClaimKind, type OfferTerms } from "./checks";
-import { diffWords } from "./diff";
+import { diffWords, hasAdditions } from "./diff";
 
 export type PriorRequest = { anchorText: string | null; body: string };
 
@@ -58,7 +56,7 @@ export function reviewRevision(
   const seenBefore = new Set(before.checks.map(signature));
 
   // True when the revision only took words out.
-  const onlyRemovals = !diffWords(previousBody, currentBody).some((p) => p.type === "added" && p.text.trim() !== "");
+  const onlyRemovals = !hasAdditions(diffWords(previousBody, currentBody));
 
   const outcomes = requests.map((request): RequestOutcome => {
     const anchor = request.anchorText?.trim() ?? "";
@@ -92,16 +90,7 @@ export function reviewRevision(
       // drafted request, sent unedited: it is about this claim and nothing else.
       const fromDraft = request.body.trim() === draftRequest(flagged);
       const label = fam === "apr" ? "rate" : "fee";
-      // The screen never says "Resolved". It says what the comparison found:
-      //   requested_present  the drafted request named a figure, and exactly
-      //                      that figure is new in this version
-      //   removed            the flagged claim was deleted, its figure is gone
-      //                      from the ad, and nothing was added
-      //   check_passes       a new matching figure, under a request written
-      //                      in the reviewer's own words
-      //   changed            anything else: a different figure, reworded
-      //                      copy, a figure left behind. The change is shown
-      //                      and the reviewer confirms.
+      // Which outcome applies. Each is defined on RequestOutcome above.
       // A figure counts only if it is new in this version, the flagged figure
       // is gone from the ad in every form, and the version brought in nothing
       // the number check had to hold for the reviewer.
@@ -119,9 +108,9 @@ export function reviewRevision(
           ? terms.feePct
           : flagged.suggestion === null || flaggedValue === null
             ? null
-            : terms.aprMin !== null && flaggedValue < terms.aprMin
-              ? terms.aprMin
-              : terms.aprMax;
+            : // An edit is suggested for a rate only when it is stated as the lowest
+              // rate and is below the offer's, so the figure asked for is that lowest APR.
+              terms.aprMin;
       const arrow = (c: Check) => `${flagged.claim.quote} \u2192 ${c.claim.quote}.`;
       if (fresh.length) {
         const exact = asked === null ? undefined : fresh.find((c) => c.claim.value === asked);

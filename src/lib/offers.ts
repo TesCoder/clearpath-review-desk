@@ -1,6 +1,6 @@
 // Shared by server and browser: which offer terms apply on a date.
 import type { OfferTerms } from "./checks";
-import { formatDate } from "./format";
+import { formatDate, percent } from "./format";
 
 export type RevisionTerms = OfferTerms & {
   offerId: string;
@@ -13,9 +13,10 @@ export type RevisionTerms = OfferTerms & {
 
 export const PLACEMENTS = ["Comparison site listing", "Blog article", "Email newsletter", "Social post"] as const;
 
-function dayBefore(isoDate: string): string {
+/** A date moved by a number of days, as YYYY-MM-DD. */
+function shiftDay(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
 
@@ -38,7 +39,7 @@ export function withTimeline<T extends OfferTerms & { offerId: string; revision:
       .filter((o) => o.offerId === r.offerId && o !== r && later(o, r) > 0)
       .sort(later)[0];
     if (!next) return { ...r, replacedBy: null };
-    const cut = dayBefore(next.effectiveFrom);
+    const cut = shiftDay(next.effectiveFrom, -1);
     const ends = r.effectiveTo === null || cut < r.effectiveTo;
     return { ...r, effectiveTo: ends ? cut : r.effectiveTo, replacedBy: ends ? next.revision : null };
   });
@@ -51,6 +52,16 @@ export function termsOn<T extends OfferTerms & { offerId: string }>(revisions: T
       (r) => r.offerId === offerId && r.effectiveFrom <= date && (r.effectiveTo === null || date <= r.effectiveTo),
     ) ?? null
   );
+}
+
+/** True for one of the placements an ad can run in. */
+export function isPlacement(value: string): boolean {
+  return (PLACEMENTS as readonly string[]).includes(value);
+}
+
+/** True for a real calendar date inside the years this demo covers. */
+export function isDemoDate(value: string): boolean {
+  return isIsoDate(value) && value >= "2026-01-01" && value <= "2028-12-31";
 }
 
 export function isIsoDate(value: string): boolean {
@@ -69,12 +80,6 @@ export const MAX_DECISIONS_PER_AD = 40;
 export const MAX_MOVES_PER_AD = 30;
 export const MAX_ADDED_REVISIONS = 12;
 
-function nextDay(isoDate: string): string {
-  const d = new Date(`${isoDate}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
-
 /** The date ranges an offer has terms for, with back-to-back revisions joined. */
 export function coverage(revisions: Array<OfferTerms & { offerId: string }>, offerId: string): Array<{ from: string; to: string | null }> {
   const own = revisions
@@ -84,7 +89,10 @@ export function coverage(revisions: Array<OfferTerms & { offerId: string }>, off
   const out: Array<{ from: string; to: string | null }> = [];
   for (const r of own) {
     const last = out[out.length - 1];
-    if (last && last.to !== null && nextDay(last.to) >= r.effectiveFrom) last.to = r.effectiveTo;
+    // Starts on or before the day after the last range ends: one unbroken range.
+    if (last && last.to !== null && shiftDay(last.to, 1) >= r.effectiveFrom) last.to = r.effectiveTo;
+    // Otherwise a gap, so a new range. Once a range is open-ended ("onward"),
+    // it already covers everything after it and nothing more is added.
     else if (!last || last.to !== null) out.push({ from: r.effectiveFrom, to: r.effectiveTo });
   }
   return out;
@@ -125,7 +133,7 @@ export function parsePercent(raw: string): number | null {
  */
 export function refuseRevision(input: NewRevisionInput, inForce: OfferTerms | null): string | null {
   const { aprMin, aprMax, feePct, effectiveFrom } = input;
-  if (!isIsoDate(effectiveFrom) || effectiveFrom < "2026-01-01" || effectiveFrom > "2028-12-31") {
+  if (!isDemoDate(effectiveFrom)) {
     return "Enter an effective date between 2026 and 2028.";
   }
   if (![aprMin, aprMax, feePct].every((n) => Number.isFinite(n))) {
@@ -140,15 +148,19 @@ export function refuseRevision(input: NewRevisionInput, inForce: OfferTerms | nu
   return null;
 }
 
-/** The terms that differ between two revisions, in the words the screen uses. */
-export function termChanges(before: OfferTerms, after: OfferTerms): Array<{ label: string; before: string; after: string; changed: boolean }> {
-  const pct = (n: number | null) => (n === null ? "Not stated" : `${n.toFixed(2)}%`);
-  const months = (r: OfferTerms) => (r.termMinMonths === null ? "Not stated" : `${r.termMinMonths} to ${r.termMaxMonths} months`);
-  const rows: Array<[string, string, string]> = [
-    ["Lowest APR", pct(before.aprMin), pct(after.aprMin)],
-    ["Highest APR", pct(before.aprMax), pct(after.aprMax)],
-    ["Origination fee", pct(before.feePct), pct(after.feePct)],
-    ["Loan terms", months(before), months(after)],
+/** A revision's four terms as the screens show them. One list, so the offer sheet, the review screen and the comparison agree. */
+export function termRows(terms: OfferTerms): Array<{ label: string; value: string }> {
+  const pct = (n: number | null) => (n === null ? "Not stated" : percent(n));
+  return [
+    { label: "Lowest APR", value: pct(terms.aprMin) },
+    { label: "Highest APR", value: pct(terms.aprMax) },
+    { label: "Origination fee", value: pct(terms.feePct) },
+    { label: "Loan terms", value: terms.termMinMonths === null ? "Not stated" : `${terms.termMinMonths} to ${terms.termMaxMonths} months` },
   ];
-  return rows.map(([label, b, a]) => ({ label, before: b, after: a, changed: a !== b }));
+}
+
+/** Two revisions' terms side by side, with the ones that differ marked. */
+export function termChanges(before: OfferTerms, after: OfferTerms): Array<{ label: string; before: string; after: string; changed: boolean }> {
+  const now = termRows(after);
+  return termRows(before).map((row, i) => ({ label: row.label, before: row.value, after: now[i].value, changed: row.value !== now[i].value }));
 }

@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Tailwind is applied to CSS by its Turbopack loader.
   turbopack: {
     rules: {
       "*.css": {
