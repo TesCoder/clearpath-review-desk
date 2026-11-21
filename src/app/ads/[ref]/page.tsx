@@ -112,6 +112,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
     adRef: asset.ref,
     currentBody: latest.body,
     baseFingerprint: latest.fingerprint,
+    baseRevisionId: terms?.revisionId ?? "",
     nextVersion: latest.number + 1,
     terms,
     dateLabel: formatDate(asset.plannedDate),

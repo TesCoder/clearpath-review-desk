@@ -215,9 +215,50 @@ describe("a rate written in words (round 5)", () => {
     expect(outcomes[0].outcome).toBe("changed");
   });
 
-  it("is called removed when the number words are gone too", () => {
-    const { outcomes } = reviewRevision(WORDS, "Rates today.", request(), terms);
+  it("is called removed when the whole sentence is gone", () => {
+    const before = "Great loans. " + WORDS;
+    const { outcomes } = reviewRevision(before, "Great loans.", request(), terms);
     expect(outcomes[0].outcome).toBe("removed");
+  });
+
+  it("is not called removed when the deletion leaves a fragment the check now holds", () => {
+    // "Rates today." mentions rates with no figure: the check holds it, so the claim may still be there in other words.
+    const { outcomes } = reviewRevision(WORDS, "Rates today.", request(), terms);
+    expect(outcomes[0].outcome).toBe("changed");
+  });
+});
+
+describe("the old figure somewhere else in the ad (round 6)", () => {
+  const TWICE = "Rates from 6.99% APR. Our minimum APR is six point nine nine.";
+  const drafted = () => {
+    const flagged = analyzeCopy(TWICE, terms).checks.find((c) => c.status === "mismatch")!;
+    return [{ anchorText: flagged.claim.quote, body: draftRequest(flagged) }];
+  };
+
+  it("deleting the flagged sentence is not called removed while the same figure stays in words", () => {
+    const { outcomes } = reviewRevision(TWICE, "Our minimum APR is six point nine nine.", drafted(), terms);
+    expect(outcomes[0].outcome).not.toBe("removed");
+  });
+
+  it("correcting the flagged sentence is not called present while the old figure stays in words", () => {
+    const { outcomes } = reviewRevision(TWICE, "Rates from 8.99% APR. Our minimum APR is six point nine nine.", drafted(), terms);
+    expect(outcomes[0].outcome).not.toBe("requested_present");
+  });
+
+  it("a deletion that leaves the claim in other words is not called removed", () => {
+    const before = "No origination fee at all. Great loans.";
+    const flagged = analyzeCopy(before, terms).checks.find((c) => c.status === "mismatch")!;
+    const { outcomes } = reviewRevision(before, "No origination at all. Great loans.", [{ anchorText: flagged.claim.quote, body: draftRequest(flagged) }], terms);
+    expect(outcomes[0].outcome).not.toBe("removed");
+  });
+
+  it("the requested figure in wording the check holds is named as the requested figure, not as a different one", () => {
+    const from = "Rates from 6.99% APR.";
+    const flagged = analyzeCopy(from, terms).checks[0];
+    const { outcomes } = reviewRevision(from, "8.99% APR.", [{ anchorText: flagged.claim.quote, body: draftRequest(flagged) }], terms);
+    expect(outcomes[0].outcome).toBe("changed");
+    expect(outcomes[0].detail).toMatch(/That is the figure the request asked for/);
+    expect(outcomes[0].detail).not.toMatch(/not the one requested/);
   });
 });
 

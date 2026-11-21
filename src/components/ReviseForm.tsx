@@ -11,6 +11,7 @@ export function ReviseForm({
   adRef,
   currentBody,
   baseFingerprint,
+  baseRevisionId,
   nextVersion,
   terms,
   dateLabel,
@@ -23,6 +24,8 @@ export function ReviseForm({
   currentBody: string;
   /** The fingerprint of the text this edit started from. The server refuses the edit if a newer version exists. */
   baseFingerprint: string;
+  /** The offer revision the text was checked against on this page. The server refuses the edit if another now applies. */
+  baseRevisionId: string;
   nextVersion: number;
   terms: OfferTerms | null;
   dateLabel: string;
@@ -40,6 +43,10 @@ export function ReviseForm({
       <input type="hidden" name="ref" value={adRef} />
       <input type="hidden" name="baseFingerprint" value={baseFingerprint} />
       <input type="hidden" name="baseVersion" value={nextVersion - 1} />
+      {/* What the check on this page compared the text with. If the offer, the date or the placement changed since, the server refuses the edit. */}
+      <input type="hidden" name="baseRevisionId" value={baseRevisionId} />
+      <input type="hidden" name="basePlannedDate" value={plannedDate} />
+      <input type="hidden" name="basePlacement" value={placement} />
       {afterApproval ? (
         <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950">
           This ad is approved as it stands. Changing the text creates version {nextVersion}, which must be approved before it

@@ -3,10 +3,10 @@
 // What this file decides: whether a claim in ad copy "matches" the offer,
 // "does not match", or "needs the reviewer".
 //
-// It has been corrected seven times, each time after a test or a review found
+// It has been corrected eight times, each time after a test or a review found
 // a misread. After the second, the approach changed: instead of teaching the
 // code more wording, it reads a short list of exact forms and holds
-// everything else open for a person. Rounds 3 to 7 each made it say less.
+// everything else open for a person. Rounds 3 to 8 each made it say less.
 //   1. A manual test of the submit form: a rate written in words was read as
 //      nothing to compare. Added percentages written out in words.
 //   2. An independent review: ranges, unusual digits and percent signs, and
@@ -40,6 +40,22 @@
 //      35.99%"), with no "no", "not" or "never" before it; and a fee is a
 //      match only when its whole sentence is one of a few plain forms. This
 //      round uses the lists the file already had and adds none.
+//   8. Two more reviews found green results where the sentence went on after
+//      the figure ("Rates from 8.99% APR for the first six months", "Rates
+//      from 6.99% APR are unavailable"), where the claim was split over two
+//      lines ("No fees" / "for late payments"), in a question, and on "-8.99%"
+//      and "8,990%". This round is about the shape of a sentence, not its
+//      words: a rate is a match, and an edit is offered, only when nothing
+//      follows the figure in its sentence; a question is never a match; a
+//      line break ends a sentence only after end punctuation or before a
+//      blank line; a figure with a minus sign or a comma is held. The one
+//      wording change is that "n't" and "cannot" count as "not".
+//
+// What this file still cannot do, by design: it reads one sentence at a time.
+// A condition in the NEXT sentence ("A 2% origination fee applies. Only on
+// your second loan.") or a denial with no "not" in it ("Nobody pays rates from
+// 8.99% APR") still shows the figure as a match. No list of words closes
+// that. The README says so, and the reviewer and the AI read the sentence.
 //
 // The only forms this file reads as a figure (the approved forms):
 //   1. digits, an optional decimal part, at most one space, then "%",
@@ -105,6 +121,10 @@ export type Claim = {
   rangeEnd?: "low" | "high";
   /** "No", "not", "never" or "without" comes before the figure in its sentence ("APR is never as low as 8.99%"). */
   negated?: true;
+  /** Words follow the figure in its sentence ("... APR for the first six months", "... APR are unavailable"). */
+  followed?: true;
+  /** The figure's sentence is a question. */
+  question?: true;
 };
 
 export type CheckStatus = "ok" | "mismatch" | "needs_reviewer";
@@ -247,7 +267,12 @@ export function findHiddenText(text: string): HiddenTextFinding[] {
 // A figure is read only as a whole number: nothing numeric may sit directly
 // before it. ".12%" is not 12%, and the "012.99%" inside "1012.99%" is not
 // 12.99%. A number that fails this is not dropped: it is held below.
-const PERCENT = /(?<![\d.,])(\d{1,3}(?:[.,]\d{1,3})?)\s?(?:%|percent\b|per cent\b)/g;
+// A figure is written with a decimal point. One written with a comma ("8,99%",
+// "8,990%") is not read: it is held below with every other number.
+const PERCENT = /(?<![\d.,])(\d{1,3}(?:\.\d{1,3})?)\s?(?:%|percent\b|per cent\b)/g;
+// A minus sign directly before a figure ("-8.99%"), as opposed to the dash of
+// a range ("8.99%-35.99%", "5.99-35.99%"). A signed figure is held, not read.
+const MINUS_BEFORE = /(?:^|[^\d%a-z])[-\u2212\u2013]$/;
 // A figure is a rate only next to these words. "Interest" alone is not enough
 // ("cut your interest costs by 30%" is not an APR): it is held for the reviewer.
 const RATE_WORDS = /\b(?:aprs?|annual percentage rates?|rates?)\b/g;
@@ -299,10 +324,24 @@ function wordsToNumber(whole: string, decimals: string | undefined): number {
 }
 
 function sentenceBounds(norm: string, at: number): [number, number] {
+  // A line break ends a sentence only after end punctuation or next to a blank
+  // line. "No fees" on one line and "for late payments" on the next is one
+  // sentence: read as two, the first looked like a plain claim.
+  const lineEnds = (i: number) => {
+    let next = i + 1;
+    while (next < norm.length && (norm[next] === " " || norm[next] === "\t" || norm[next] === "\r")) next++;
+    if (next >= norm.length || norm[next] === "\n") return true;
+    let prev = i - 1;
+    while (prev >= 0 && /\s/.test(norm[prev])) {
+      if (norm[prev] === "\n") return true;
+      prev--;
+    }
+    return prev < 0 || /[.!?:;]/.test(norm[prev]);
+  };
   const isBreak = (i: number) =>
-    norm[i] === "\n" ||
-    ((norm[i] === "." || norm[i] === "!" || norm[i] === "?") &&
-      (i + 1 >= norm.length || /\s/.test(norm[i + 1])));
+    norm[i] === "\n"
+      ? lineEnds(i)
+      : (norm[i] === "." || norm[i] === "!" || norm[i] === "?") && (i + 1 >= norm.length || /\s/.test(norm[i + 1]));
   let start = at;
   while (start > 0 && !isBreak(start - 1)) start--;
   let end = at;
@@ -334,15 +373,16 @@ function namesOriginationFee(lower: string, s: number, e: number): boolean {
 const bare = (t: string) => t.trim().replace(/[.!?,;:]+$/, "").trim();
 
 /** Words that turn a statement around. One list, used for fees and for rates. */
-const NEGATION = /\b(?:no|not|never|without|waive[sd]?|waiving)\b/;
+const NEGATION = /\b(?:no|not|never|without|cannot|\w+n['\u2019]t|waive[sd]?|waiving)\b/;
 
 /** The only words a sentence may put before a plain statement of the fee. */
 const FEE_LEADS = ["", "a", "an", "the", "just a", "only a", "there is a", "there is an", "with a", "with an"];
 
 /**
  * True when a whole sentence states the origination fee and nothing else.
- * After the fee phrase there may be nothing, or one of three plain endings.
- * Before it there may be nothing, or one of the few lead-ins listed above.
+ * After the fee phrase there may be nothing, or one of two plain endings
+ * ("applies", "is charged"). Before it there may be nothing, or one of the
+ * few lead-ins listed above. A question is not a statement.
  * Anything else ("... applies for late payments", "... is waived for new
  * customers", "no 2% origination fee", "Only returning borrowers pay a 2%
  * origination fee") is not read as a plain statement of the fee: the rest of
@@ -351,7 +391,7 @@ const FEE_LEADS = ["", "a", "an", "the", "just a", "only a", "there is a", "ther
 function saysOnlyTheFee(sentence: string, s: number, e: number): boolean {
   const after = /^\s+origination\s+fees?\b/.exec(sentence.slice(e));
   const tail = bare(sentence.slice(after ? e + after[0].length : e));
-  if (!["", "applies", "may apply", "is charged"].includes(tail)) return false;
+  if (!["", "applies", "is charged"].includes(tail)) return false;
   const before = sentence.slice(0, s).trim();
   // "origination fee of <figure>": the lead-in is what comes before those words.
   const named = /(?:^|\s)origination\s+fees?(?:\s+(?:of|is|at))?$/.exec(before);
@@ -384,7 +424,7 @@ export function findClaims(text: string): Claim[] {
     read.push([m.index, m.index + m[0].length]);
     const noFee: Claim = { kind: "no_fee", value: 0, ...toOriginal(m.index, m.index + m[0].length) };
     const [ss, se] = sentenceBounds(lower, m.index);
-    if (bare(lower.slice(ss, se)) === bare(m[0])) noFee.plain = true;
+    if (bare(lower.slice(ss, se)) === bare(m[0]) && lower[se] !== "?") noFee.plain = true;
     claims.push(noFee);
   }
 
@@ -392,7 +432,8 @@ export function findClaims(text: string): Claim[] {
   const numbers: Array<{ s: number; e: number; value: number }> = [];
   PERCENT.lastIndex = 0;
   for (let m = PERCENT.exec(lower); m; m = PERCENT.exec(lower)) {
-    numbers.push({ s: m.index, e: m.index + m[0].length, value: Number(m[1].replace(",", ".")) });
+    if (MINUS_BEFORE.test(lower.slice(Math.max(0, m.index - 2), m.index))) continue;
+    numbers.push({ s: m.index, e: m.index + m[0].length, value: Number(m[1]) });
   }
   WORD_PERCENT.lastIndex = 0;
   for (let m = WORD_PERCENT.exec(lower); m; m = WORD_PERCENT.exec(lower)) {
@@ -427,7 +468,7 @@ export function findClaims(text: string): Claim[] {
     if (kind === "apr" && !tail && /\binterest\b/.test(sentence)) kind = "unclassified";
     if (kind === "apr" && tail) e += tail[0].length;
     const claim: Claim = { kind, value, ...toOriginal(s, e) };
-    if (kind === "fee" && saysOnlyTheFee(sentence, n.s - ss, n.e - ss)) claim.plain = true;
+    if (kind === "fee" && lower[se] !== "?" && saysOnlyTheFee(sentence, n.s - ss, n.e - ss)) claim.plain = true;
     if (kind === "apr") {
       // What the words just before the figure say it is. Used only to hold a
       // figure back or to withhold a suggested edit, never to call a match.
@@ -439,6 +480,7 @@ export function findClaims(text: string): Claim[] {
       const label = /^\s*(maximum|max|minimum|min)\b/.exec(lower.slice(e));
       if (label && !claim.endpoint) claim.endpoint = label[1].startsWith("max") ? "maximum" : "minimum";
       if (NEGATION.test(lower.slice(ss, n.s))) claim.negated = true;
+      if (lower[se] === "?") claim.question = true;
     }
     claims.push(claim);
     figureSpans.set(claim, [n.s, e]);
@@ -458,6 +500,16 @@ export function findClaims(text: string): Claim[] {
       rates[i].rangeEnd = "low";
       rates[i + 1].rangeEnd = "high";
     }
+  }
+  // Does anything follow the figure in its sentence? For the low end of a
+  // range, "follow" means after the high end. A label directly after the
+  // figure ("12.99% APR maximum") is part of the figure's own statement.
+  for (let i = 0; i < rates.length; i++) {
+    const own = figureSpans.get(rates[i])!;
+    const from = rates[i].rangeEnd === "low" ? figureSpans.get(rates[i + 1])![1] : own[1];
+    const [, sentenceEnd] = sentenceBounds(lower, own[0]);
+    const rest = lower.slice(from, sentenceEnd).replace(/^\s*(?:maximum|max|minimum|min)\b/, "");
+    if (bare(rest) !== "") rates[i].followed = true;
   }
 
   // Held for the reviewer, never matched and never dropped:
@@ -567,7 +619,13 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
         // rate ("from 6.99% APR"). Then the offer's lowest rate is the field it
         // corresponds to. For any other wording the range is shown and the
         // marketer decides.
-        suggestion: claim.statesMinimum ? withNumber(claim, terms.aprMin.toFixed(2)) : null,
+        // No edit when the sentence goes on, denies the figure or asks a
+        // question: "Rates from 6.99% APR are unavailable" would become a
+        // sentence about 8.99% that is still not an offer of it.
+        suggestion:
+          claim.statesMinimum && !claim.followed && !claim.negated && !claim.question
+            ? withNumber(claim, terms.aprMin.toFixed(2))
+            : null,
       };
     }
     if (claim.value > terms.aprMax) {
@@ -596,10 +654,11 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
     // lowest rate and says the opposite of the offer.
     const asLowest = (saysLowest || claim.rangeEnd === "low") && claim.endpoint !== "maximum";
     const asHighest = (claim.endpoint === "maximum" || claim.rangeEnd === "high") && !saysLowest;
-    if (claim.value === terms.aprMin && asLowest && !claim.negated) {
+    const plainly = !claim.negated && !claim.followed && !claim.question;
+    if (claim.value === terms.aprMin && asLowest && plainly) {
       return { claim, status: "ok", message: `${percent(claim.value)} APR is the lowest APR on the offer (${range}).`, suggestion: null };
     }
-    if (claim.value === terms.aprMax && asHighest && !claim.negated) {
+    if (claim.value === terms.aprMax && asHighest && plainly) {
       return { claim, status: "ok", message: `${percent(claim.value)} APR is the highest APR on the offer (${range}).`, suggestion: null };
     }
     if (claim.value === terms.aprMin || claim.value === terms.aprMax) {
@@ -664,10 +723,14 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
     }
     return {
       claim,
-      status: terms.feePct === 0 ? "ok" : "needs_reviewer",
+      // A match only when the sentence says nothing more: "No origination fee
+      // unless you refinance" is not what a fee of zero on the offer says.
+      status: terms.feePct === 0 && claim.plain ? "ok" : "needs_reviewer",
       message:
         terms.feePct === 0
-          ? "The offer sheet lists no origination fee."
+          ? claim.plain
+            ? "The offer sheet lists no origination fee."
+            : `The offer sheet lists no origination fee, but the sentence around "${claim.quote}" says more than that. Please read it.`
           : `The ${terms.campaign} offer sheet does not state an origination fee, so "${claim.quote}" cannot be confirmed from it.`,
       suggestion: null,
     };

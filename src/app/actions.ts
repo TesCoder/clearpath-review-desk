@@ -314,6 +314,9 @@ export async function submitRevision(_prev: FormState, formData: FormData): Prom
   const note = text(formData.get("note")).trim();
   const baseFingerprint = text(formData.get("baseFingerprint")).slice(0, 64);
   const baseVersion = Number(text(formData.get("baseVersion")));
+  const baseRevisionId = text(formData.get("baseRevisionId")).slice(0, 80);
+  const basePlannedDate = text(formData.get("basePlannedDate")).slice(0, 10);
+  const basePlacement = text(formData.get("basePlacement")).slice(0, 60);
 
   if ((await getRole()) !== "marketer") return { error: "Switch to the Marketer view to change an ad." };
   if (!body) return { error: "The ad copy cannot be empty." };
@@ -331,6 +334,16 @@ export async function submitRevision(_prev: FormState, formData: FormData): Prom
       // let a form opened at the first A save over what happened since.
       if (baseFingerprint !== asset.latest.fingerprint || baseVersion !== asset.latest.number) {
         return `Version ${asset.latest.number} of this ad was submitted after you started this edit. Reload the page and edit the current text.`;
+      }
+      // The marketer wrote this text against the offer terms, the date and the
+      // placement shown on their page. If any of them changed in another tab,
+      // the check they saw no longer applies to what would be saved.
+      if (
+        baseRevisionId !== (asset.terms?.revisionId ?? "") ||
+        basePlannedDate !== asset.plannedDate ||
+        basePlacement !== asset.placement
+      ) {
+        return "The offer terms, the date or the placement of this ad changed after you started this edit. Reload the page and check the text against what applies now.";
       }
       if (body === asset.latest.body) return `The text is the same as version ${asset.latest.number}. Change it first.`;
       if (asset.versions.length >= MAX_VERSIONS_PER_AD) return "This ad has reached the demo's version limit.";

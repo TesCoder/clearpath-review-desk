@@ -135,6 +135,9 @@ export async function runReviewFor(workspaceId: string, target: ReviewTarget): P
   if (reservation === "stored") {
     const now = await getStoredFor(target);
     if (now) return now;
+    // The result was there a moment ago and cannot be read now. No call was
+    // reserved, so none is made: the reader tries again.
+    return unavailable("The AI's stored answer for this ad could not be read. Try again in a few seconds.");
   }
   if (reservation === "cap") {
     return unavailable("The demo's daily limit for AI calls has been reached. The code checks still apply.");

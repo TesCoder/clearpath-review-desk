@@ -6,16 +6,16 @@ import { ModelError, type ClaimModel } from "./types";
 
 // Sonnet 5.5: the task is narrow (find and quote claims in a short ad), and
 // code checks the numbers. Low effort keeps the answer fast enough for a page.
-// The timeout stays under the host's 10 second limit for a server function, so
-// a slow call ends as "unavailable" with a Try again button, not a broken page.
+// The 9 second limit is this app's own budget, not the host's: a reviewer
+// should not watch a spinner for longer, so a slow call ends as "unavailable"
+// with a Try again button.
 export const MODEL_ID = "claude-sonnet-5-5";
 
 let client: Anthropic | null = null;
 
 /**
- * How long one model call may take. The default suits a page: it stays under
- * a 10 second limit for a server function, and a slower call ends as
- * "unavailable" with a Try again button. AI_TIMEOUT_MS overrides it. The
+ * How long one model call may take. The default suits a page: a slower call
+ * ends as "unavailable" with a Try again button. AI_TIMEOUT_MS overrides it. The
  * evaluation sets a longer limit, because it measures what the model reads,
  * not how fast it answers.
  */

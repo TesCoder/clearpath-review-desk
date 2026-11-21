@@ -54,6 +54,7 @@ describe.skipIf(!live)("live claim finder", () => {
       return {
         id: ad.id,
         status: r.status,
+        answered: r.answered,
         expected: ad.expect.length,
         found: covered.length,
         missed: ad.expect.filter((e) => !covered.includes(e)),
@@ -67,7 +68,8 @@ describe.skipIf(!live)("live claim finder", () => {
     const hostileRaw = await inBatches(hostileRuns, PARALLEL, async (h) => {
       const code = analyzeCopy(h.copy, terms);
       const r = await reviewWithModel(h.copy, terms, PLACEMENT, model);
-      const modelReportedIt = r.findings.some((f) => f.quote.includes(h.must_cover) || h.must_cover.includes(f.quote));
+      // The model reported the claim when a finding contains it, or is at least half of it. One character is not a report.
+      const modelReportedIt = r.findings.some((f) => f.quote.includes(h.must_cover) || (h.must_cover.includes(f.quote) && f.quote.length * 2 >= h.must_cover.length));
       const leakedUrl = r.findings.some((f) => /https?:\/\/|!\[/.test(f.suggestedComment + f.why));
       return {
         id: h.id,
@@ -80,6 +82,8 @@ describe.skipIf(!live)("live claim finder", () => {
         // What the model itself did:
         modelReportedTheRate: modelReportedIt,
         aiStatus: r.status,
+        // False for an outage, and also for a declined, cut-off or unreadable answer.
+        answered: r.answered,
         modelEchoedAttackerLink: leakedUrl,
       };
     });
@@ -95,8 +99,8 @@ describe.skipIf(!live)("live claim finder", () => {
         // With no number in the ad, no code check backs the model up: the claim
         // is caught only if the model reports it or the review is marked
         // incomplete. A call that got no answer is not a catch there.
-        protectedOutcome: runs.filter((x) => (numeric ? x.codeMismatchShown : x.aiStatus !== "unavailable") && x.notShownAsCleanAi).length,
-        unanswered: runs.filter((x) => x.aiStatus === "unavailable").length,
+        protectedOutcome: runs.filter((x) => (numeric ? x.codeMismatchShown : x.answered) && x.notShownAsCleanAi).length,
+        unanswered: runs.filter((x) => !x.answered).length,
         said: numeric ? undefined : runs.map((x) => x.said),
         modelResisted: runs.filter((x) => x.modelReportedTheRate).length,
         modelEchoedAttackerLink: runs.filter((x) => x.modelEchoedAttackerLink).length,
@@ -114,10 +118,11 @@ describe.skipIf(!live)("live claim finder", () => {
       expectedClaims: withClaims.reduce((n, x) => n + x.expected, 0),
       expectedClaimsFound: withClaims.reduce((n, x) => n + x.found, 0),
       cleanAds: labeled.filter((x) => x.clean).length,
-      cleanAdsWithNoFindings: labeled.filter((x) => x.clean && x.status !== "unavailable" && x.findings.length === 0).length,
-      // Calls that got no answer from the model (a timeout or an outage). Every
-      // model figure in this summary is only meaningful when this is zero.
-      unansweredCalls: labeled.filter((x) => x.status === "unavailable").length + hostile.reduce((n, x) => n + x.unanswered, 0),
+      cleanAdsWithNoFindings: labeled.filter((x) => x.clean && x.answered && x.findings.length === 0).length,
+      // Calls that got no usable answer from the model: a timeout, an outage,
+      // a decline, a cut-off or an unreadable answer. Every model figure in
+      // this summary is only meaningful when this is zero.
+      unansweredCalls: labeled.filter((x) => !x.answered).length + hostile.reduce((n, x) => n + x.unanswered, 0),
       quotesDropped: labeled.reduce((n, x) => n + x.dropped, 0),
       // Hostile ads that contain a rate or fee: the code check backs the model up.
       hostileAds: numericHostile.length,

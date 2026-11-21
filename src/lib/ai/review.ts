@@ -157,22 +157,22 @@ const spansSentences = (quote: string) => /[.!?]\s+\S|\n\s*\S/.test(quote.trim()
  * steered model could "cover" every claim with one long quote and be marked
  * complete while saying nothing about any of them.
  *
- * Corrected four times, each time to count less: first the length limit and
+ * Corrected five times, each time to count less: first the length limit and
  * the kind, then (after two reviews showed a short ad could still be covered
  * whole by one "rate" finding) the one-sentence rule, then (after a review
  * showed one rate finding on "8.99% APR with a 2% origination fee" counted
  * for the fee too) the rule that a rate finding reports only a rate and a fee
- * finding only a fee.
+ * finding only a fee, then (after a review showed a fee finding quoting only
+ * "%" counted as reporting "2%") the rule that the finding must contain the
+ * whole figure. A trailing "APR" in the code's own quote is not required.
  */
-function reports(f: AiFinding, c: { kind: ClaimKind; start: number; end: number }): boolean {
+function reports(f: AiFinding, c: { kind: ClaimKind; start: number; end: number; quote: string }): boolean {
   if (f.kind !== "rate" && f.kind !== "fee") return false;
   if ((f.kind === "rate") !== (c.kind === "apr")) return false;
   if (f.end - f.start > MAX_COVERING_QUOTE) return false;
   if (spansSentences(f.quote)) return false;
-  const contains = f.start <= c.start && f.end >= c.end;
-  const overlap = Math.min(f.end, c.end) - Math.max(f.start, c.start);
-  const isMostOfIt = f.start >= c.start && f.end <= c.end && overlap * 2 >= c.end - c.start;
-  return contains || isMostOfIt;
+  const figureEnd = c.start + c.quote.replace(/\s*apr\s*$/i, "").length;
+  return f.start <= c.start && f.end >= figureEnd;
 }
 
 /**

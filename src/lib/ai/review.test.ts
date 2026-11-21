@@ -159,6 +159,19 @@ describe("a model steered into covering claims without reporting them", () => {
     expect(r.missedByModel).toEqual(["no fees"]);
   });
 
+  it("a finding that quotes a piece of the figure does not report it", async () => {
+    const fee = "A 2% origination fee applies.";
+    const r1 = await reviewWithModel(fee, terms, PLACEMENT, fake({ findings: [finding("%", { kind: "fee" })], copy_addresses_reviewer: false }));
+    expect(r1.status).toBe("incomplete");
+    expect(r1.missedByModel).toEqual(["2%"]);
+    const rate = "Rates from 6.99% APR.";
+    const r2 = await reviewWithModel(rate, terms, PLACEMENT, fake({ findings: [finding("99% APR")], copy_addresses_reviewer: false }));
+    expect(r2.status).toBe("incomplete");
+    // The figure without the letters "APR" is enough: the code's own quote includes them, a model's often does not.
+    const r3 = await reviewWithModel(rate, terms, PLACEMENT, fake({ findings: [finding("6.99%")], copy_addresses_reviewer: false }));
+    expect(r3.status).toBe("complete");
+  });
+
   it("a rate finding and a fee finding on the same sentence report both", async () => {
     const copy = "Great loans. Rates from 6.99% APR with no fees.";
     const findings = [finding("6.99% APR"), finding("no fees", { kind: "fee" })];

@@ -100,12 +100,13 @@ export default async function OfferSheet(props: PageProps<"/offers">) {
   }
   // The list is what the save recorded. Where each ad stands is worked out
   // now, so a reloaded receipt does not go on saying all of them need review.
-  // "Reviewed" means a reviewer's decision was recorded after this save. A
-  // marketer's edit or a move is not a review: the ad is still waiting.
+  // "Reviewed" means a reviewer's decision on the ad's latest version was
+  // recorded after this save. A marketer's edit or a move is not a review, and
+  // neither is a decision on an older version: the ad is still waiting.
   const since = (a: AssetView): "waiting" | "reviewed" | "covered" | "changed" =>
     a.status === "offer_changed"
       ? "waiting"
-      : a.decisions.some((d) => new Date(d.createdAt).getTime() > savedAt)
+      : a.decisions.some((d) => d.versionNumber === a.latest.number && new Date(d.createdAt).getTime() > savedAt)
         ? "reviewed"
         : a.status === "approved"
           ? "covered"
@@ -164,7 +165,7 @@ export default async function OfferSheet(props: PageProps<"/offers">) {
                     Open the review queue: they are at the top
                   </Link>
                 ) : (
-                  "They are at the top of the reviewer's queue."
+                  "Those still waiting are in the reviewer's queue."
                 )}
               </p>
             </>

@@ -71,8 +71,14 @@ describe("claims", () => {
     expect(a.checks.map((c) => c.status)).toEqual(["ok", "mismatch"]);
   });
 
-  it("reads a decimal comma and the word percent", () => {
-    expect(findClaims("Rates from 6,99 percent APR.")[0].value).toBe(6.99);
+  it("reads the word percent, and holds a figure written with a comma", () => {
+    expect(findClaims("Rates from 6.99 percent APR.")[0].value).toBe(6.99);
+    // "8,990%" is not 8.99%. A comma figure is never read: it is held whole.
+    for (const t of ["Rates from 6,99 percent APR.", "Rates from 8,99% APR.", "Rates from 8,990% APR.", "Rates from 35,99% APR."]) {
+      const a = analyzeCopy(t, winter);
+      expect(a.checks.some((c) => c.status === "ok"), t).toBe(false);
+      expect(a.checks.every((c) => c.status === "needs_reviewer"), t).toBe(true);
+    }
   });
 
   it("reads a rate written out in words", () => {
@@ -413,7 +419,7 @@ describe("a figure is read only as a whole number", () => {
 
 describe("a fee is a match, and an edit is offered, only when the sentence says nothing more", () => {
   it("the plain statements still match", () => {
-    for (const t of ["A 2% origination fee applies.", "A 2% origination fee may apply.", "Origination fee of 2%.", "The origination fee is 2%.", "Just a 2% origination fee.", "With an origination fee of 2%."]) {
+    for (const t of ["A 2% origination fee applies.", "A 2% origination fee is charged.", "Origination fee of 2%.", "The origination fee is 2%.", "Just a 2% origination fee.", "With an origination fee of 2%."]) {
       expect(checks(t).find((c) => c.claim.kind === "fee")?.status, t).toBe("ok");
     }
   });
@@ -521,5 +527,94 @@ describe("a match needs wording that states it, not only the right figure (round
     expect(c?.suggestion).toBe("8.99% APR");
     expect(checks("Rates from 6.99% APR.")[0].suggestion).toBe("8.99% APR");
     expect(checks("Just a 1% origination fee.")[0].suggestion).toBe("2%");
+  });
+});
+
+describe("a match depends on the shape of the sentence too (round 8)", () => {
+  const greens = (t: string) => checks(t).filter((c) => c.status === "ok").length;
+  const edits = (t: string) => checks(t).filter((c) => c.suggestion).length;
+
+  it("a rate is held when the sentence goes on after the figure", () => {
+    for (const t of [
+      "Rates from 8.99% APR for the first six months.",
+      "Rates from 8.99% APR if you apply today.",
+      "Rates from 8.99% APR are a thing of the past.",
+      "Rates rise from 8.99% APR to 35.99% APR after six months.",
+      "You could save up to 35.99% on our APR.",
+      "Rates from 8.99% APR, with a 2% origination fee.",
+    ]) {
+      expect(greens(t), t).toBe(0);
+    }
+  });
+
+  it("no edit is offered on a wrong rate when the sentence goes on, denies it, or asks", () => {
+    for (const t of [
+      "Rates from 6.99% APR are unavailable.",
+      "Rates from 6.99% APR for the first year only.",
+      "Rates are not from 6.99% APR.",
+      "Rates from 6.99% APR?",
+    ]) {
+      expect(edits(t), t).toBe(0);
+      expect(checks(t).some((c) => c.status === "mismatch"), t).toBe(true);
+    }
+    expect(edits("Rates from 6.99% APR.")).toBe(1);
+  });
+
+  it("a contraction of not, or cannot, before the figure holds it", () => {
+    for (const t of [
+      "Our rates don't start at 8.99% APR.",
+      "Your APR can't go up to 35.99%.",
+      "Rates won't be as low as 8.99% APR.",
+      "Rates cannot start at 8.99% APR.",
+      "Our rates don\u2019t start at 8.99% APR.",
+    ]) {
+      expect(greens(t), t).toBe(0);
+    }
+  });
+
+  it("a question is never a match", () => {
+    for (const t of ["Rates from 8.99% APR? Not here.", "A 2% origination fee?", "No origination fee?"]) {
+      expect(greens(t), t).toBe(0);
+      expect(edits(t), t).toBe(0);
+    }
+  });
+
+  it("a claim split over two lines is one sentence: no edit, no match", () => {
+    const late = checks("No fees\nfor late payments");
+    expect(late[0]).toMatchObject({ status: "mismatch", suggestion: null });
+    const returning = checks("A 1% origination fee applies\nonly to returning borrowers.");
+    expect(returning[0]).toMatchObject({ status: "mismatch", suggestion: null });
+    expect(greens("A 2% origination fee applies\nonly to returning borrowers.")).toBe(0);
+    expect(greens("Rates from 8.99% APR\nfor the first six months")).toBe(0);
+  });
+
+  it("lines that end in punctuation, or are split by a blank line, are still separate sentences", () => {
+    expect(greens("Rates from 8.99% APR.\nA 2% origination fee applies.")).toBe(2);
+    expect(greens("Rates from 8.99% APR\n\nA 2% origination fee applies")).toBe(2);
+    expect(checks("Great loans.\nNo origination fee.").find((c) => c.claim.kind === "no_fee")?.suggestion).toBe("A 2% origination fee applies");
+  });
+
+  it("a figure with a minus sign is held, and the dash of a range is not a minus sign", () => {
+    const signed = analyzeCopy("The minimum APR is -8.99%.", winter);
+    expect(signed.checks.some((c) => c.status === "ok")).toBe(false);
+    expect(signed.checks.every((c) => c.status === "needs_reviewer")).toBe(true);
+    expect(greens("8.99%-35.99% APR")).toBe(2);
+    expect(greens("8.99% - 35.99% APR")).toBe(2);
+  });
+
+  it('"may apply" is weaker than the offer, so it is held', () => {
+    expect(checks("A 2% origination fee may apply.")[0].status).toBe("needs_reviewer");
+  });
+
+  it("with no fee on the offer, a no-fee claim is a match only when the sentence says nothing more", () => {
+    const free = { ...winter, feePct: 0 };
+    expect(analyzeCopy("No origination fee.", free).checks[0].status).toBe("ok");
+    expect(analyzeCopy("No origination fee unless you refinance.", free).checks[0].status).toBe("needs_reviewer");
+  });
+
+  it("what a shape rule cannot see is still a match: stated as a limit in the README", () => {
+    // Kept as tests so the limit is written down where the code is, not discovered.
+    expect(greens("A 2% origination fee applies. Only on your second loan.")).toBe(1);
+    expect(greens("Nobody pays rates from 8.99% APR.")).toBe(1);
   });
 });

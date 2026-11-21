@@ -3,7 +3,7 @@
 //
 // What this file decides: what the screen says about an earlier request.
 //
-// It has been corrected five times. The first three each narrowed when the
+// It has been corrected six times. The first three each narrowed when the
 // word "Resolved" was shown wrongly (a reworded claim; a two-part request; an
 // unchanged figure elsewhere in the ad). The fourth found two more (a
 // different in-range figure than the one requested; the letters "APR" deleted
@@ -13,6 +13,10 @@
 // everything else. Bringing a verdict back would be a product decision.
 // The fifth narrowed "Flagged claim removed": a rate written in words whose
 // "percent APR" was deleted left the number in the ad and was called removed.
+// The sixth narrowed it again, and "Requested figure is present" with it: the
+// old figure written in words anywhere else in the ad ("Our minimum APR is six
+// point nine nine") counts as still there, and so does a deletion that leaves
+// something new for the check to hold ("No origination at all").
 
 import { analyzeCopy, draftRequest, normalizeWithMap, type Check, type ClaimKind, type OfferTerms } from "./checks";
 import { diffWords, hasAdditions } from "./diff";
@@ -39,6 +43,20 @@ export type RequestOutcome = {
 const family = (kind: ClaimKind) => (kind === "no_fee" ? "fee" : kind);
 // Held items have no value to tell them apart, so they are compared by their words.
 const signature = (c: Check) => (c.claim.kind === "unclassified" ? `held:${c.claim.quote}` : `${c.claim.kind}:${c.claim.value}`);
+
+const ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+const TENS = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+
+/** A figure below 100 as it would be written in words: 6.99 is "six point nine nine". Spaces only, no hyphens. */
+function inWords(value: number): string[] {
+  const [whole, decimals = ""] = String(value).split(".");
+  const n = Number(whole);
+  if (!Number.isInteger(n) || n < 0 || n > 99) return [];
+  const head = n < 20 ? ONES[n] : TENS[Math.floor(n / 10) - 2] + (n % 10 ? ` ${ONES[n % 10]}` : "");
+  if (!decimals) return [head];
+  const digits = (zero: string) => decimals.split("").map((d) => (d === "0" ? zero : ONES[Number(d)])).join(" ");
+  return [...new Set([`${head} point ${digits("zero")}`, `${head} point ${digits("oh")}`])];
+}
 
 /** Every number written in digits in the text, after the same clean-up the number check uses. */
 function numbersIn(text: string): number[] {
@@ -103,10 +121,15 @@ export function reviewRevision(
       const numberWords = /\d/.test(flagged.claim.quote)
         ? ""
         : normalizeWithMap(flagged.claim.quote).norm.replace(/\s*(?:percent|per cent)(?:\s+apr)?\s*$/, "").trim();
+      // The same figure written in words anywhere in the new version, whatever
+      // form the flagged claim itself was in.
+      const spoken = normalizeWithMap(currentBody).norm.replace(/[\s-]+/g, " ");
+      const stillInWords = flaggedValue !== null && inWords(flaggedValue).some((w) => spoken.includes(w));
       const figureGone =
         flaggedValue === null ||
         (!numbersIn(currentBody).includes(flaggedValue) &&
           !after.claims.some((c) => c.value === flaggedValue) &&
+          !stillInWords &&
           !(numberWords !== "" && normalizeWithMap(currentBody).norm.includes(numberWords)));
       const broughtInHeld = after.checks.some((c) => c.claim.kind === "unclassified" && !seenBefore.has(signature(c)));
       const fresh =
@@ -145,13 +168,20 @@ export function reviewRevision(
         ? sameFamily.filter((c) => c.status === "needs_reviewer" && c.claim.value !== null && !seenBefore.has(signature(c)))
         : [];
       if (freshHeld.length && fromDraft && asked !== null) {
+        // The same number as the one requested, in wording the check holds
+        // ("8.99% APR." alone): say it is the figure, and why it is not green.
+        const same = freshHeld.find((c) => c.claim.value === asked);
         return {
           request,
           outcome: "changed",
-          detail: `${arrow(freshHeld[0])} The request asked for ${asked}%. The new figure is inside the offer's range, but it is not the one requested. Confirm it answers your request.`,
+          detail: same
+            ? `${arrow(same)} That is the figure the request asked for, but the check could not read the new wording as stating it as the offer's rate. Confirm it answers your request.`
+            : `${arrow(freshHeld[0])} The request asked for ${asked}%. The new figure is inside the offer's range, but it is not the one requested. Confirm it answers your request.`,
         };
       }
-      if (!stillThere && onlyRemovals && figureGone) {
+      // "Removed" is not said when the deletion left words the check now
+      // holds for the reviewer: the claim may still be there in other words.
+      if (!stillThere && onlyRemovals && figureGone && !broughtInHeld) {
         const fact = "The claim was removed, and nothing was added in its place.";
         return fromDraft
           ? { request, outcome: "removed", detail: fact }

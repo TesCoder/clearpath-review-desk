@@ -87,13 +87,14 @@ export function WordingCheck({
             {answer.state === "incomplete" ? (
               <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950">
                 <span className="font-semibold">AI check incomplete.</span> {answer.reason} Do not read this as a full
-                account of the draft. The reviewer sees the same result.
+                account of the draft.{answer.recorded === false ? "" : " The reviewer sees the same result."}
               </p>
             ) : null}
             {answer.recorded === false ? (
               <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950" data-note="not-recorded">
-                This check could not be added to the record: this demo has reached its limit of recorded wording checks.
-                The reviewer will not be told that it ran.
+                This check was not added to the record
+                {answer.state === "incomplete" ? ": the AI gave no answer that could be kept" : ": this demo has reached its limit of recorded wording checks"}.
+                The reviewer will not be told that it ran, and the AI reads the ad again for them.
               </p>
             ) : null}
             {answer.state === "nothing" ? (

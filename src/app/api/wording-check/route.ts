@@ -62,7 +62,9 @@ export async function POST(request: Request) {
   // workspace, so this cannot be used to fill the event log. When the ceiling
   // stops a record from being written, the marketer is told: otherwise they
   // would see an answer the reviewer never learns about.
-  let recorded = true;
+  // A declined, cut-off or unreadable answer is not stored and not recorded:
+  // the reviewer's own read may come out differently.
+  let recorded = review.answered || result.state === "unavailable";
   if (review.answered && result.state !== "unavailable") {
     const inserted = await sql`
       insert into events (workspace_id, type, actor_role, data)

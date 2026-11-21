@@ -179,9 +179,9 @@ export function termChanges(before: OfferTerms, after: OfferTerms): Array<{ labe
  * was approved, moved or sent back in between, the preview's list of affected
  * ads no longer holds and the save is refused.
  */
-export function approvedKey(ads: Array<{ ref: string; plannedDate: string }>): string {
+export function approvedKey(ads: Array<{ ref: string; plannedDate: string; placement: string }>): string {
   return ads
-    .map((a) => `${a.ref}@${a.plannedDate}`)
+    .map((a) => `${a.ref}@${a.plannedDate}@${a.placement}`)
     .sort()
     .join(",");
 }

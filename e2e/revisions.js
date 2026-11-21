@@ -6,11 +6,17 @@
 const { chromium } = require('playwright');
 const { ok, finish, fail } = require('./harness');
 const BASE = process.env.BASE || 'http://localhost:3000';
+const problems = [];
+const watch = (page) => {
+  page.on('console', (m) => { if (m.type() === 'error') problems.push('console: ' + m.text()); });
+  page.on('pageerror', (e) => problems.push('pageerror: ' + e.message));
+  return page;
+};
 const DELETED = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
 const WAIVED = 'Compare ClearPath personal loans. Rates from 8.99% APR. We waive the origination fee for every borrower.';
 
 async function reviseTo(browser, text, ownWords) {
-  const page = await (await browser.newContext({ viewport: { width: 1360, height: 900 } })).newPage();
+  const page = watch(await (await browser.newContext({ viewport: { width: 1360, height: 900 } })).newPage());
   await page.goto(BASE + '/ads/AD-1041');
   // By default the request is the app's own draft, sent unedited.
   if (ownWords) await page.fill('textarea[name=comment]', ownWords);
@@ -29,7 +35,7 @@ async function reviseTo(browser, text, ownWords) {
 // sends the app's own request about the minimum; the marketer answers with
 // `revised`. Returns what the reviewer then sees about that request.
 async function minimumAndMaximum(browser, revised) {
-  const page = await (await browser.newContext({ viewport: { width: 1360, height: 900 } })).newPage();
+  const page = watch(await (await browser.newContext({ viewport: { width: 1360, height: 900 } })).newPage());
   await page.goto(BASE + '/');
   await page.click('header button[value=marketer]');
   await page.waitForURL('**/marketer');
@@ -87,5 +93,5 @@ async function minimumAndMaximum(browser, revised) {
   ok('a different figure inside the range is not reported as the requested one', !/Requested figure is present|Flagged claim removed/.test(different) && /Wording changed, please confirm/i.test(different) && /not the one requested/.test(different) && /6\.99% APR \u2192 12\.49% APR/.test(different));
   ok('the word Resolved appears on none of these screens', ![deleted, waived, partial, stillWrong, corrected, different].some((t) => /\bResolved\b/.test(t)));
   await browser.close();
-  finish();
+  finish(problems);
 })().catch(fail);

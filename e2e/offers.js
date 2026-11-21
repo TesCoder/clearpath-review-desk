@@ -114,6 +114,14 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
   ok('the marketer fixes it in one click', (await page.inputValue('textarea[name=body]')) === 'Compare ClearPath personal loans. Rates from 9.49% APR.');
   await page.click('button:has-text("Send version 4 for review")');
   await page.waitForSelector('text=Sent for review as version 4');
+  // The receipt, with version 4 waiting: the request on version 3 was a decision after the change, but not on this version.
+  const sentUrl = page.url();
+  await page.goto(receiptUrl);
+  const waiting = (await page.innerText('[data-banner=revision-saved]')).replace(/\s+/g, ' ');
+  console.log('receipt with a new version waiting:', waiting);
+  ok('a decision on an older version is not counted as a review of the new one',
+    /2 still need a decision/.test(waiting) && /AD-1041[^:]*: edited or moved since, still waiting for a decision/.test(waiting));
+  await page.goto(sentUrl);
   await page.click('button:has-text("Review version 4 as the reviewer")');
   await page.waitForSelector('form[aria-label="Your decision"]');
   ok('the revision view reports the requested figure', /8\.99% APR → 9\.49% APR/.test(await page.innerText('main')) && /Requested figure is present/.test(await page.innerText('main')));
