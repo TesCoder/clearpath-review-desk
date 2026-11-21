@@ -3,11 +3,12 @@
 // What this file decides: whether a claim in ad copy "matches" the offer,
 // "does not match", or "needs the reviewer".
 //
-// It has been corrected twelve times, each time after a test or a review found
+// It has been corrected thirteen times, each time after a test or a review found
 // a misread. After the second, the approach changed: instead of teaching the
 // code more wording, it reads a short list of exact forms and holds
 // everything else open for a person. Rounds 3 to 9 each made it say less;
-// round 10 undid a side effect of round 8, and rounds 11 and 12 added no rule.
+// round 10 undid a side effect of round 8, rounds 11 and 12 added no rule, and
+// round 13 took half of one away.
 //   1. A manual test of the submit form: a rate written in words was read as
 //      nothing to compare. Added percentages written out in words.
 //   2. An independent review: ranges, unusual digits and percent signs, and
@@ -91,6 +92,13 @@
 //      of the next was read as a claim of no fee). The cost: a claim broken
 //      in the middle of its own phrase ("No origination" / "fee.") is now
 //      held in amber on each line, not flagged red.
+//  13. The same sweep's second report found round 12's fault again on one
+//      line: in "Rates from 6.99% APR 36 months" the 36 was joined to the
+//      rate, and the wrong rate was replaced by one amber hold. The join now
+//      works in one direction only: a number BEFORE a figure ("5.99-35.99%")
+//      still holds the whole expression; a number AFTER it is held by itself
+//      and the figure stays. The reason this is safe is in the comment at
+//      the join: such a figure can never be a match.
 //      What still reads across a line break, on purpose: whether a claim
 //      says nothing more, and the lead-in before a rate ("from", "up to"),
 //      both within one statement; and a figure whose "%" or "percent" is on
@@ -614,9 +622,15 @@ export function findClaims(text: string): Claim[] {
 
   // Held for the reviewer, never matched and never dropped:
   // (a) any other number in a sentence about rates, fees or percentages. If it
-  //     is joined to a figure that was read ("5.99-35.99%", "5.99 to 35.99%"),
-  //     the whole expression is held, and the figure that was read is no
-  //     longer reported by itself: only half of the claim was understood.
+  //     comes just BEFORE a figure that was read ("5.99-35.99%", "5.99 to
+  //     35.99%"), the whole expression is held, and the figure that was read
+  //     is no longer reported by itself: only half of the claim was
+  //     understood, and alone the figure could be called a match.
+  //     A number just AFTER a figure that was read ("6.99% APR 36 months")
+  //     is held by itself and the figure stays in the results. It cannot be
+  //     called a match or be offered an edit there, because the number
+  //     follows it in its statement. So keeping it can only keep a red flag
+  //     on a figure that is outside the offer. Dropping it hid that flag.
   const inRead = (s: number, e: number) => read.some(([a, b]) => s < b && a < e);
   const JOIN = /^\s*(?:-|\u2013|\u2014|to|and|\/)?\s*$/;
   ANY_NUMBER.lastIndex = 0;
@@ -638,10 +652,8 @@ export function findClaims(text: string): Claim[] {
       // rate", "2) ...") is not the other half of this figure, and must not
       // take a rate that was read, and its red flag, out of the results.
       const gapAfter = lower.slice(e, Math.max(e, span[0]));
-      const gapBefore = lower.slice(span[1], Math.max(span[1], s));
       const joinedAfter = span[0] >= e && span[0] - e <= 5 && !gapAfter.includes("\n") && JOIN.test(gapAfter);
-      const joinedBefore = s >= span[1] && s - span[1] <= 5 && !gapBefore.includes("\n") && JOIN.test(gapBefore);
-      if (joinedAfter || joinedBefore) {
+      if (joinedAfter) {
         s = Math.min(s, span[0]);
         e = Math.max(e, span[1]);
         claims.splice(i, 1);

@@ -719,6 +719,28 @@ describe("a match depends on the shape of the sentence too (round 8)", () => {
     expect(broken.every((c) => c.status === "needs_reviewer")).toBe(true);
   });
 
+  it("a number after a figure does not take the figure out of the results (round 13)", () => {
+    const reds = (t: string) => checks(t).filter((c) => c.status === "mismatch").map((c) => c.claim.quote);
+    for (const t of [
+      "Rates from 6.99% APR 24 hour funding",
+      "Rates from 6.99% APR - 24 month terms",
+      "Rates from 6.99% APR 36 months",
+      "Rates from 6.99% APR and 3 easy steps",
+      "Low 6.99% APR 2 day funding",
+    ]) {
+      expect(reds(t), t).toEqual(["6.99% APR"]);
+      expect(edits(t), t).toBe(0);
+    }
+    // The right figure in the same place is held, never a match: the number follows it.
+    for (const t of ["Rates from 8.99% APR 36 months", "Rates from 8.99% APR - 24 month terms", "Up to 35.99% APR 60 months", "8.99% to 35.99% APR 36 months"]) {
+      expect(greens(t), t).toBe(0);
+      expect(reds(t), t).toEqual([]);
+    }
+    // A number before the figure still holds the whole expression: alone, the figure could be a match.
+    expect(checks("Up to 5.99-35.99% APR").map((c) => [c.claim.quote, c.status])).toEqual([["5.99-35.99% APR", "needs_reviewer"]]);
+    expect(greens("As low as 5 to 8.99% APR")).toBe(0);
+  });
+
   it("an amber message says what was held (round 11, wording only)", () => {
     const both = checks("Borrow up to $50,000 with rates from 8.99% APR.").find((c) => c.claim.kind === "apr")!;
     expect(both.status).toBe("needs_reviewer");
