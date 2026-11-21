@@ -200,6 +200,51 @@ const approvals = async (page) => ((await page.innerText('section:has(h2:has-tex
     await ctx.close();
   }
 
+  // 8. A form opened before another change is refused, so it cannot quietly undo that change.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1360, height: 900 } });
+    const a = await ctx.newPage(); watch(a, problems);
+    const pressed = (page, role) => page.waitForFunction((r) => document.querySelector('header button[value=' + r + ']').getAttribute('aria-pressed') === 'true', role);
+    await a.goto(BASE + '/ads/AD-1038');
+    await a.click('header button[value=marketer]'); await pressed(a, 'marketer');
+    await a.waitForSelector('button:has-text("Move this ad")');
+    const b = await ctx.newPage(); watch(b, problems);
+    await b.goto(BASE + '/ads/AD-1038');
+    await b.waitForSelector('button:has-text("Move this ad")');
+    await b.fill('input[name=plannedDate]', '2026-12-20');
+    await b.click('button:has-text("Move this ad")');
+    await b.waitForSelector('text=back in the review queue');
+    await a.selectOption('select[name=placement]', 'Blog article');
+    await a.click('button:has-text("Move this ad")');
+    await a.waitForSelector('form [role=alert]');
+    const staleMove = await a.innerText('form [role=alert]');
+    console.log('stale move form:', staleMove);
+    ok('a move form opened before another move is refused, and names where the ad is now',
+      /was moved after you opened this form/.test(staleMove) && /Dec 20, 2026/.test(staleMove));
+
+    await a.click('header button[value=reviewer]'); await pressed(a, 'reviewer');
+    await a.goto(BASE + '/offers');
+    await b.goto(BASE + '/offers');
+    await b.fill('input[name=effectiveFrom]', '2026-12-01');
+    await b.fill('input[name=aprMax]', '36.99');
+    await b.click('button:has-text("Add revision 3")');
+    await b.waitForSelector('[data-banner=revision-saved]');
+    await a.fill('input[name=effectiveFrom]', '2026-12-01');
+    await a.fill('input[name=feePct]', '3');
+    await a.click('button:has-text("Add revision 3")');
+    await a.waitForSelector('form [role=alert]');
+    const staleOffer = await a.innerText('form [role=alert]');
+    console.log('stale offer form:', staleOffer);
+    ok('an offer form opened before another revision is refused', /Revision 3 was added to this offer after you opened this form/.test(staleOffer));
+    await a.reload();
+    ok('the other change survives: the highest APR is still 36.99%, and there is no revision 4',
+      /36\.99%/.test(await a.innerText('tr[data-revision="3"]')) && !(await a.$('tr[data-revision="4"]')));
+
+    await a.goto(BASE + '/ads/AD-1036');
+    ok('History names the offer revision each approval was made against', /against offer revision 1/.test(await a.innerText('main')));
+    await ctx.close();
+  }
+
   await browser.close();
   finish(problems);
 })().catch(fail);

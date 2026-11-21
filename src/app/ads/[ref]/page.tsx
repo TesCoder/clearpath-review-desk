@@ -23,7 +23,7 @@ import { loadAsset, loadRevisions, type AssetView } from "@/lib/data";
 import { shortFingerprint } from "@/lib/fingerprint";
 import { formatDate, timeAgo, withArticle } from "@/lib/format";
 import { coverageText } from "@/lib/offers";
-import { REVIEWER_TURN, lastApproval } from "@/lib/status";
+import { REVIEWER_TURN } from "@/lib/status";
 import { getRole, getWorkspaceId } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -93,7 +93,7 @@ export default async function AdPage(props: PageProps<"/ads/[ref]">) {
   ];
   const previous =
     asset.versions.find((v) => v.number === latest.number - 1) ?? null;
-  const approval = lastApproval(asset.state);
+  const approval = asset.approval;
   const approvedVersion = approval
     ? asset.versions.find((v) => v.number === approval.versionNumber)
     : null;

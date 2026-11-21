@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { SwitchTo } from "@/components/SwitchTo";
-import type { AssetView, RevisionTerms } from "@/lib/data";
+import type { AssetView, DecisionView, RevisionTerms } from "@/lib/data";
 import { formatDate, formatMoment, withArticle } from "@/lib/format";
-import { REVIEWER_TURN, type DecisionRecord, type Role } from "@/lib/status";
+import { REVIEWER_TURN, type Role } from "@/lib/status";
 
 const TONE = {
   good: ["border-emerald-200 bg-emerald-50", "text-emerald-900"],
@@ -81,7 +81,7 @@ export function ApprovalLostNotice({
 }: {
   asset: AssetView;
   role: Role;
-  approval: DecisionRecord | null;
+  approval: DecisionView | null;
   approvalTerms: RevisionTerms | null | undefined;
 }) {
   const { latest, terms } = asset;

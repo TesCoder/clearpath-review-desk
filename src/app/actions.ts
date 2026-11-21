@@ -8,7 +8,7 @@ import { loadAsset, loadRevisions, type AssetView, type Executor } from "@/lib/d
 import { db } from "@/lib/db";
 import { logEvent } from "@/lib/events";
 import { fingerprint } from "@/lib/fingerprint";
-import { formatDate } from "@/lib/format";
+import { formatDate, withArticle } from "@/lib/format";
 import { addRevision, type AddRevisionResult } from "@/lib/offer-sheet";
 import {
   MAX_ADS_PER_WORKSPACE,
@@ -159,9 +159,10 @@ export async function decide(_prev: FormState, formData: FormData): Promise<Form
     }
 
     const [decision] = await tx`
-      insert into decisions (version_id, kind, fingerprint, offer_revision_id, planned_date, placement, reviewer)
+      insert into decisions (version_id, kind, fingerprint, offer_revision_id, planned_date, placement, reviewer, open_mismatches)
       values (${asset.latest.id}, ${kind}, ${asset.latest.fingerprint}, ${terms.revisionId},
-              ${asset.plannedDate}, ${asset.placement}, ${DEMO_REVIEWER})
+              ${asset.plannedDate}, ${asset.placement}, ${DEMO_REVIEWER},
+              ${kind === "approve" ? (asset.analysis?.mismatches ?? 0) : 0})
       returning id
     `;
     if (comment) {
@@ -312,6 +313,7 @@ export async function submitRevision(_prev: FormState, formData: FormData): Prom
   const body = cleanBody(text(formData.get("body")));
   const note = text(formData.get("note")).trim();
   const baseFingerprint = text(formData.get("baseFingerprint")).slice(0, 64);
+  const baseVersion = Number(text(formData.get("baseVersion")));
 
   if ((await getRole()) !== "marketer") return { error: "Switch to the Marketer view to change an ad." };
   if (!body) return { error: "The ad copy cannot be empty." };
@@ -324,7 +326,10 @@ export async function submitRevision(_prev: FormState, formData: FormData): Prom
     error = await withLockedAd(workspaceId, ref, async (asset, tx) => {
       // An edit is made to a particular version. If another tab has already
       // sent a newer one, saving this would quietly bring back the old words.
-      if (baseFingerprint !== asset.latest.fingerprint) {
+      // The version number is checked as well as the text: if the text went
+      // from A to B and back to A in other tabs, the fingerprint alone would
+      // let a form opened at the first A save over what happened since.
+      if (baseFingerprint !== asset.latest.fingerprint || baseVersion !== asset.latest.number) {
         return `Version ${asset.latest.number} of this ad was submitted after you started this edit. Reload the page and edit the current text.`;
       }
       if (body === asset.latest.body) return `The text is the same as version ${asset.latest.number}. Change it first.`;
@@ -353,6 +358,8 @@ export async function moveAd(_prev: FormState, formData: FormData): Promise<Form
   const ref = text(formData.get("ref")).slice(0, 20);
   const plannedDate = text(formData.get("plannedDate"));
   const placement = text(formData.get("placement"));
+  const fromDate = text(formData.get("fromDate")).slice(0, 10);
+  const fromPlacement = text(formData.get("fromPlacement")).slice(0, 60);
 
   if ((await getRole()) !== "marketer") return { error: "Switch to the Marketer view to move an ad." };
   if (!isPlacement(placement)) return { error: "Choose where the ad will run." };
@@ -361,6 +368,12 @@ export async function moveAd(_prev: FormState, formData: FormData): Promise<Form
   }
   const workspaceId = await getWorkspaceId();
   const error = await withLockedAd(workspaceId, ref, async (asset, tx) => {
+    // The form shows a date and a placement and posts both. If the ad was
+    // moved in another tab since, a form that changed only one of them would
+    // quietly put the other back.
+    if (fromDate !== asset.plannedDate || fromPlacement !== asset.placement) {
+      return `This ad was moved after you opened this form. It is now planned for ${formatDate(asset.plannedDate)} as ${withArticle(asset.placement)}. Reload the page and move it from there.`;
+    }
     if (asset.plannedDate === plannedDate && asset.placement === placement) {
       return "That is the current date and placement. Change one to move the ad.";
     }
@@ -395,6 +408,7 @@ export async function addOfferRevision(_prev: FormState, formData: FormData): Pr
   const aprMin = parsePercent(text(formData.get("aprMin")).slice(0, 12));
   const aprMax = parsePercent(text(formData.get("aprMax")).slice(0, 12));
   const feePct = parsePercent(text(formData.get("feePct")).slice(0, 12));
+  const seenLatest = Number(text(formData.get("seenLatest")));
 
   if ((await getRole()) !== "reviewer") {
     return { error: "Switch to the Reviewer view to change the offer sheet. Compliance owns it." };
@@ -405,7 +419,7 @@ export async function addOfferRevision(_prev: FormState, formData: FormData): Pr
   const workspaceId = await getWorkspaceId();
   let result: AddRevisionResult;
   try {
-    result = await addRevision(workspaceId, offerId, { aprMin, aprMax, feePct, effectiveFrom });
+    result = await addRevision(workspaceId, offerId, { aprMin, aprMax, feePct, effectiveFrom }, seenLatest);
   } catch (e) {
     if (isUniqueViolation(e)) return { error: "Another change to the offer sheet arrived at the same moment. Try again." };
     throw e;

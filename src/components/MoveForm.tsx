@@ -25,6 +25,9 @@ export function MoveForm({
   return (
     <form action={action} className="space-y-2">
       <input type="hidden" name="ref" value={adRef} />
+      {/* Where the ad stood when this form was opened. The server refuses the move if it has been moved since. */}
+      <input type="hidden" name="fromDate" value={plannedDate} />
+      <input type="hidden" name="fromPlacement" value={placement} />
       <p className="text-sm text-slate-700">
         {intro ?? "An approval covers one date and one placement. Moving the ad sends it back to review, even if no word changes."}
       </p>

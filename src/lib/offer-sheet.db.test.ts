@@ -108,6 +108,13 @@ describe.skipIf(!url)("an added offer revision belongs to one demo workspace (lo
     expect(await m.sheet.addRevision(a, "no-such-offer", raise)).toMatchObject({ ok: false });
   });
 
+  it("a form opened before another change to the sheet is refused, and one opened after it is accepted", async () => {
+    // Workspace a is at revision 3. A form that last saw revision 2 must not save.
+    const stale = await m.sheet.addRevision(a, "pl-winter", { ...raise, feePct: 3 }, 2);
+    expect(stale).toMatchObject({ ok: false, error: expect.stringMatching(/Revision 3 was added to this offer after you opened this form/) });
+    expect((await m.data.loadRevisions(a)).filter((r) => r.addedHere).length).toBe(1);
+  });
+
   it("a second workspace can add its own revision 3 without clashing", async () => {
     const result = await m.sheet.addRevision(b, "pl-winter", { ...raise, aprMin: 10.25 });
     expect(result).toMatchObject({ ok: true, revision: 3 });

@@ -34,9 +34,15 @@ export function HistoryCard({ asset }: { asset: AssetView }) {
                       : "Changes requested"}{" "}
                     by {d.reviewer}, {formatMoment(d.createdAt)}
                     {d.kind === "approve"
-                      ? `, for ${formatDate(d.plannedDate)} as ${withArticle(d.placement)}`
+                      ? `, for ${formatDate(d.plannedDate)} as ${withArticle(d.placement)}${d.terms ? `, against offer revision ${d.terms.revision}` : ""}`
                       : ""}
                   </p>
+                  {d.kind === "approve" && d.openMismatches > 0 ? (
+                    <p className="mt-0.5 text-red-900">
+                      Approved with {d.openMismatches} claim{d.openMismatches === 1 ? "" : "s"} that did not match the offer. The
+                      reviewer ticked <q>Approve anyway</q>.
+                    </p>
+                  ) : null}
                   {asset.comments
                     .filter((c) => c.decisionId === d.id)
                     .map((c) => (

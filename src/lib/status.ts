@@ -76,6 +76,13 @@ export function deriveStatus(state: AssetState): AssetStatus {
       last.placement === state.placement;
     return onlyOfferMoved ? "offer_changed" : "rescheduled";
   }
+  // No decision yet on the latest version. What it is depends on what happened
+  // to the version before it. If the reviewer sent that one back, this is the
+  // marketer's answer to a request ("revised"), even when a still older
+  // version was once approved. Only when the previous version stood approved
+  // is this an edit made after approval.
+  const previous = latestFor(state.decisions, state.latestVersion.number - 1);
+  if (previous?.kind === "request_changes") return "revised";
   const earlierApproval = state.decisions.some(
     (d) => d.kind === "approve" && d.versionNumber < state.latestVersion.number,
   );

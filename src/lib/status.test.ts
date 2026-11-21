@@ -69,6 +69,30 @@ describe("status", () => {
   });
 });
 
+describe("a version that answers a request, when an older version was once approved", () => {
+  // Version 1 approved, version 2 sent back, version 3 sent in.
+  const s: AssetState = {
+    ...base,
+    latestVersion: { number: 3, fingerprint: "ccc" },
+    decisions: [
+      decision({}),
+      decision({ versionNumber: 2, kind: "request_changes", fingerprint: "bbb", createdAt: "2026-11-21T10:00:00Z" }),
+    ],
+  };
+
+  it("is revised, so it takes its place among the revised ads in the queue", () => {
+    expect(deriveStatus(s)).toBe("revised");
+  });
+
+  it("an edit straight after an approval is still an edit after approval", () => {
+    expect(deriveStatus({ ...base, latestVersion: { number: 2, fingerprint: "bbb" }, decisions: [decision({})] })).toBe("edited_after_approval");
+  });
+
+  it("the old approval stays on record", () => {
+    expect(lastApproval(s)?.versionNumber).toBe(1);
+  });
+});
+
 describe("the offer changes after approval", () => {
   // The ad is untouched: same words, date and placement. A new offer revision now covers its date.
   const moved: AssetState = { ...base, currentRevisionId: "pl-winter-r3", decisions: [decision({})] };

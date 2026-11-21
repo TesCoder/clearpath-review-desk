@@ -39,6 +39,7 @@ export function ReviseForm({
     <form action={action} className="space-y-3">
       <input type="hidden" name="ref" value={adRef} />
       <input type="hidden" name="baseFingerprint" value={baseFingerprint} />
+      <input type="hidden" name="baseVersion" value={nextVersion - 1} />
       {afterApproval ? (
         <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950">
           This ad is approved as it stands. Changing the text creates version {nextVersion}, which must be approved before it

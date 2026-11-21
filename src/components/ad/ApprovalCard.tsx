@@ -1,8 +1,7 @@
 import { CopyButton } from "@/components/CopyButton";
-import type { AssetView, RevisionTerms, VersionView } from "@/lib/data";
+import type { AssetView, DecisionView, RevisionTerms, VersionView } from "@/lib/data";
 import { shortFingerprint } from "@/lib/fingerprint";
 import { formatDate, formatMoment, withArticle } from "@/lib/format";
-import type { DecisionRecord } from "@/lib/status";
 import { Card } from "./ui";
 
 /**
@@ -17,7 +16,7 @@ export function ApprovalCard({
   approvalTerms,
 }: {
   asset: AssetView;
-  approval: DecisionRecord;
+  approval: DecisionView;
   approvedVersion: VersionView;
   approvalTerms: RevisionTerms;
 }) {
@@ -36,13 +35,7 @@ export function ApprovalCard({
         {approvedVersion.body}
       </p>
       <p className="mt-2 text-sm text-slate-700">
-        Approved by{" "}
-        {/* The approval record carries no reviewer name, so it is read from the stored decision made at the same moment. */}
-        {
-          asset.decisions.find(
-            (d) => d.createdAt === approval.createdAt,
-          )?.reviewer
-        }{" "}
+        Approved by {approval.reviewer}{" "}
         on {formatMoment(approval.createdAt)}. Version{" "}
         {approval.versionNumber}, fingerprint{" "}
         <span className="font-mono">

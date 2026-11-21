@@ -20,7 +20,13 @@ export type AddRevisionResult =
  * ads those were, by reading the same status rule before and after the insert.
  * No AI call is made.
  */
-export async function addRevision(workspaceId: string, offerId: string, input: NewRevisionInput): Promise<AddRevisionResult> {
+export async function addRevision(
+  workspaceId: string,
+  offerId: string,
+  input: NewRevisionInput,
+  /** The highest revision number on the sheet the form's preview was worked out from. */
+  seenLatest?: number,
+): Promise<AddRevisionResult> {
   const revisionId = `${offerId}-w${randomBytes(6).toString("hex")}`;
   return (await db().begin(async (tx) => {
     // One change to the offer sheet at a time, and no decision lands in the
@@ -46,12 +52,22 @@ export async function addRevision(workspaceId: string, offerId: string, input: N
     if (own.filter((r) => r.addedHere).length >= MAX_ADDED_REVISIONS) {
       return { ok: false, error: "This demo has reached its limit of added offer revisions. Use Reset demo to start over." };
     }
+    // The preview said what this change would do to the sheet as it was then.
+    // If a revision was added since, the preview no longer holds, and the
+    // form's untouched fields may carry terms that have been replaced.
+    const latest = Math.max(0, ...own.map((r) => r.revision));
+    if (seenLatest !== undefined && seenLatest !== latest) {
+      return {
+        ok: false,
+        error: `Revision ${latest} was added to this offer after you opened this form. Reload the page and check the preview again before saving.`,
+      };
+    }
     const inForce = termsOn(revisions, offerId, input.effectiveFrom);
     const refusal = refuseRevision(input, inForce);
     if (refusal) return { ok: false, error: refusal };
 
     const before = await loadAssets(workspaceId, tx);
-    const revision = Math.max(0, ...own.map((r) => r.revision)) + 1;
+    const revision = latest + 1;
     // The form changes the rates and the fee. The loan term range is carried
     // over from the revision this one replaces.
     const carried = inForce ?? [...own].sort((a, b) => b.revision - a.revision)[0] ?? null;

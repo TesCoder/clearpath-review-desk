@@ -178,6 +178,10 @@ alter table versions add column if not exists wording_notes int;
 alter table versions add column if not exists wording_revision_id text;
 alter table versions add column if not exists wording_placement text;
 
+-- How many claims did not match the offer when an approval was given anyway.
+-- Kept on the decision so History can show it beside the approval.
+alter table decisions add column if not exists open_mismatches int not null default 0;
+
 -- A stored AI result, and a decision, go with the offer revision they were
 -- made against. Only a revision added in one visitor's demo is ever deleted
 -- (Reset demo, or the workspace expiring), and that visitor's ads are deleted
@@ -223,15 +227,10 @@ values
    'ClearPath offer sheet CC-2026-E, revision 1 (fictional)'),
   ('mtg-prequal-r1', 'mtg-prequal', 1, '2026-09-01', null, null, null, null, null, null,
    'ClearPath offer sheet MTG-2026-P, revision 1 (fictional)')
-on conflict (id) do update set
-  effective_from = excluded.effective_from,
-  effective_to = excluded.effective_to,
-  apr_min = excluded.apr_min,
-  apr_max = excluded.apr_max,
-  origination_fee_pct = excluded.origination_fee_pct,
-  term_min_months = excluded.term_min_months,
-  term_max_months = excluded.term_max_months,
-  source = excluded.source;
+-- A revision is never rewritten once it exists: approvals and stored AI
+-- results point at it by id, and its terms are what they were checked
+-- against. Changed terms are a new revision with a new id.
+on conflict (id) do nothing;
 
 insert into affiliates (id, name, kind) values
   ('pinecrest', 'Pinecrest Compare', 'Comparison site'),

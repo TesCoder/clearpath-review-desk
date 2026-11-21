@@ -38,6 +38,18 @@ export function OfferRevisionForm({
   const [aprMin, setAprMin] = useState(two(start?.aprMin ?? null));
   const [aprMax, setAprMax] = useState(two(start?.aprMax ?? null));
   const [fee, setFee] = useState(two(start?.feePct ?? null));
+  // Which fields the reviewer has typed in. The others follow the date: they
+  // always show the terms in force on the chosen day, so a change to one term
+  // cannot carry another term over from a different period by accident.
+  const [typed, setTyped] = useState({ aprMin: false, aprMax: false, fee: false });
+  const changeDate = (next: string) => {
+    setDate(next);
+    const on = isIsoDate(next) ? termsOn(revisions, offerId, next) : null;
+    if (!on) return;
+    if (!typed.aprMin) setAprMin(two(on.aprMin));
+    if (!typed.aprMax) setAprMax(two(on.aprMax));
+    if (!typed.fee) setFee(two(on.feePct));
+  };
 
   const inForce = isIsoDate(date) ? termsOn(revisions, offerId, date) : null;
   const values = { aprMin: parsePercent(aprMin), aprMax: parsePercent(aprMax), feePct: parsePercent(fee) };
@@ -77,23 +89,25 @@ export function OfferRevisionForm({
   return (
     <form action={action} className="grid gap-6 lg:grid-cols-5" aria-label={`Add a revision to ${campaign}`}>
       <input type="hidden" name="offerId" value={offerId} />
+      {/* The sheet this preview was worked out from. The server refuses the save if a revision was added since. */}
+      <input type="hidden" name="seenLatest" value={nextNumber - 1} />
       <div className="space-y-4 lg:col-span-2">
         <label className="block">
           <span className="text-sm font-medium text-slate-800">Effective from</span>
-          <input type="date" name="effectiveFrom" value={date} onChange={(e) => setDate(e.target.value)} className={FIELD} required />
+          <input type="date" name="effectiveFrom" value={date} onChange={(e) => changeDate(e.target.value)} className={FIELD} required />
         </label>
         <div className="grid grid-cols-3 gap-3">
           <label className="block">
             <span className="text-sm font-medium text-slate-800">Lowest APR %</span>
-            <input name="aprMin" inputMode="decimal" value={aprMin} onChange={(e) => setAprMin(e.target.value)} className={FIELD} required />
+            <input name="aprMin" inputMode="decimal" value={aprMin} onChange={(e) => { setAprMin(e.target.value); setTyped((t) => ({ ...t, aprMin: true })); }} className={FIELD} required />
           </label>
           <label className="block">
             <span className="text-sm font-medium text-slate-800">Highest APR %</span>
-            <input name="aprMax" inputMode="decimal" value={aprMax} onChange={(e) => setAprMax(e.target.value)} className={FIELD} required />
+            <input name="aprMax" inputMode="decimal" value={aprMax} onChange={(e) => { setAprMax(e.target.value); setTyped((t) => ({ ...t, aprMax: true })); }} className={FIELD} required />
           </label>
           <label className="block">
             <span className="text-sm font-medium text-slate-800">Origination fee %</span>
-            <input name="feePct" inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} className={FIELD} required />
+            <input name="feePct" inputMode="decimal" value={fee} onChange={(e) => { setFee(e.target.value); setTyped((t) => ({ ...t, fee: true })); }} className={FIELD} required />
           </label>
         </div>
         <p className="text-xs text-slate-500">

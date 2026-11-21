@@ -6,6 +6,12 @@ import postgres from "postgres";
 
 const url = process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL;
 if (!url) {
+  // On the host a missing database is a broken deploy: fail the build here
+  // instead of publishing pages that cannot load. Locally it is only a skip.
+  if (process.env.NETLIFY) {
+    console.error("migrate: DATABASE_URL is not set. The site cannot run without it.");
+    process.exit(1);
+  }
   console.warn("migrate: DATABASE_URL is not set, skipping the schema step.");
   process.exit(0);
 }

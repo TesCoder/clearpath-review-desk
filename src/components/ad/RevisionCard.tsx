@@ -57,7 +57,17 @@ export function RevisionCard({
 }) {
   const { latest, terms, analysis } = asset;
   const priorRequests = asset.comments.filter((c) => c.versionNumber === previous.number && c.authorRole === "reviewer");
-  const revision = terms ? reviewRevision(previous.body, latest.body, priorRequests, terms) : null;
+  // A request was written against the offer terms of its day. If the offer has
+  // changed since, "what you asked for" is still judged against those terms,
+  // so the account of a past request does not change when the offer does.
+  // What is new in this version is judged against the terms that apply now.
+  const requestTerms =
+    asset.decisions.filter((d) => d.versionNumber === previous.number && d.kind === "request_changes").at(-1)?.terms ?? terms;
+  const current = terms ? reviewRevision(previous.body, latest.body, priorRequests, terms) : null;
+  const revision =
+    current && requestTerms && requestTerms.revisionId !== terms?.revisionId
+      ? { outcomes: reviewRevision(previous.body, latest.body, priorRequests, requestTerms).outcomes, newClaims: current.newClaims }
+      : current;
   const diff = diffWords(previous.body, latest.body);
   const flaggedNewAll = revision?.newClaims.filter((c) => c.status !== "ok") ?? [];
   // Added sentences that no code check covers. A reworded claim ("we waive the

@@ -113,6 +113,14 @@ export async function runReviewFor(workspaceId: string, target: ReviewTarget): P
       select count(*) filter (where workspace_id = ${workspaceId})::int as mine, count(*)::int as everyone
       from ai_calls where created_at > now() - interval '24 hours'
     `;
+    // Another request for this text may have finished between the first look
+    // and this lock. If so there is a stored result, and no call is needed.
+    const [done] = await tx`
+      select 1 as yes from ai_reviews
+      where fingerprint = ${target.fingerprint} and offer_revision_id = ${terms.revisionId}
+        and placement = ${target.placement} and prompt_version = ${cacheVersion()}
+    `;
+    if (done) return "stored";
     if (used.mine >= MAX_CALLS_PER_WORKSPACE_PER_DAY || used.everyone >= MAX_CALLS_PER_DAY) return "cap";
     const claimed = await tx`
       insert into ai_pending (cache_key) values (${key})
@@ -124,6 +132,10 @@ export async function runReviewFor(workspaceId: string, target: ReviewTarget): P
     await tx`insert into ai_calls (workspace_id, outcome) values (${workspaceId}, 'started')`;
     return "ok";
   });
+  if (reservation === "stored") {
+    const now = await getStoredFor(target);
+    if (now) return now;
+  }
   if (reservation === "cap") {
     return unavailable("The demo's daily limit for AI calls has been reached. The code checks still apply.");
   }

@@ -22,7 +22,14 @@ export type VersionView = {
   wording: WordingRecord | null;
 };
 
-export type DecisionView = DecisionRecord & { id: string; reviewer: string };
+export type DecisionView = DecisionRecord & {
+  id: string;
+  reviewer: string;
+  /** The offer terms the decision was made against, as they were then. */
+  terms: RevisionTerms | null;
+  /** For an approval: how many claims did not match the offer and were accepted anyway. */
+  openMismatches: number;
+};
 
 export type CommentView = {
   id: string;
@@ -57,7 +64,9 @@ export type AssetView = {
   flags: number;
   state: AssetState;
   status: AssetStatus;
-  /** The offer terms the most recent approval was checked against, when there is one. */
+  /** The most recent approval of any version, with who gave it. Kept on screen after edits and moves. */
+  approval: DecisionView | null;
+  /** The offer terms that approval was checked against. */
   approvedAgainst: RevisionTerms | null;
   /** When the ad last changed hands (a submission, a decision or a move). */
   lastActivityAt: string;
@@ -142,7 +151,7 @@ export async function loadAssets(workspaceId: string, sql: Executor = db()): Pro
     `,
     sql`
       select d.id, v.asset_id, v.number as version_number, d.kind, d.fingerprint, d.offer_revision_id,
-             d.planned_date::text, d.placement, d.reviewer, d.created_at
+             d.planned_date::text, d.placement, d.reviewer, d.created_at, d.open_mismatches
       from decisions d
       join versions v on v.id = d.version_id
       join assets a on a.id = v.asset_id
@@ -197,6 +206,8 @@ export async function loadAssets(workspaceId: string, sql: Executor = db()): Pro
         placement: d.placement,
         reviewer: d.reviewer,
         createdAt: iso(d.created_at),
+        terms: revisions.find((r) => r.revisionId === d.offer_revision_id) ?? null,
+        openMismatches: d.open_mismatches ?? 0,
       }));
     const cs: CommentView[] = comments
       .filter((c) => c.asset_id === a.id)
@@ -217,6 +228,8 @@ export async function loadAssets(workspaceId: string, sql: Executor = db()): Pro
       decisions: ds,
     };
     const last = activity.find((e) => e.asset_id === a.id);
+    // lastApproval returns one of the records it was given, so it is one of `ds`.
+    const approval = (lastApproval(state) as DecisionView | null) ?? null;
     const analysis = terms ? analyzeCopy(latest.body, terms) : null;
     const instructionText = findInstructionText(latest.body);
     out.push({
@@ -238,7 +251,8 @@ export async function loadAssets(workspaceId: string, sql: Executor = db()): Pro
       flags: (analysis?.openFlags ?? 0) + instructionText.length,
       state,
       status: deriveStatus(state),
-      approvedAgainst: revisions.find((r) => r.revisionId === lastApproval(state)?.offerRevisionId) ?? null,
+      approval,
+      approvedAgainst: approval?.terms ?? null,
       lastActivityAt: last ? iso(last.at) : latest.createdAt,
     });
   }
