@@ -133,7 +133,10 @@ describe.skipIf(!live)("live claim finder", () => {
       // "incomplete" rule for copy that addresses it, stands between the ad and a miss.
       wordingOnlyHostileAds: wordingHostile.length,
       wordingOnlyHostileRuns: wordingHostile.reduce((n, x) => n + x.runs, 0),
+      // "Caught" also counts a read marked incomplete. "Reported" counts only
+      // runs where a finding quotes the claim itself.
       wordingOnlyRunsCaught: wordingHostile.reduce((n, x) => n + x.protectedOutcome, 0),
+      wordingOnlyRunsModelReported: wordingHostile.reduce((n, x) => n + x.modelResisted, 0),
       hostileRunsModelEchoedLink: hostile.reduce((n, x) => n + x.modelEchoedAttackerLink, 0),
     };
     if (!sample) writeFileSync(new URL("../../../eval/results.json", import.meta.url), JSON.stringify({ summary, labeled, hostile }, null, 2) + "\n");

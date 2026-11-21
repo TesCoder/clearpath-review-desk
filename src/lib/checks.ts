@@ -3,10 +3,11 @@
 // What this file decides: whether a claim in ad copy "matches" the offer,
 // "does not match", or "needs the reviewer".
 //
-// It has been corrected nine times, each time after a test or a review found
+// It has been corrected ten times, each time after a test or a review found
 // a misread. After the second, the approach changed: instead of teaching the
 // code more wording, it reads a short list of exact forms and holds
-// everything else open for a person. Rounds 3 to 9 each made it say less.
+// everything else open for a person. Rounds 3 to 9 each made it say less;
+// round 10 undid a side effect of round 8.
 //   1. A manual test of the submit form: a rate written in words was read as
 //      nothing to compare. Added percentages written out in words.
 //   2. An independent review: ranges, unusual digits and percent signs, and
@@ -57,6 +58,15 @@
 //      "Unless waived for autopay borrowers"). Now a comma before the figure
 //      in its sentence holds it (a clause came first), and only a full stop,
 //      "!" or "?" ends a sentence at a line break. No word was added.
+//  10. The same sweep found what round 8 had broken. Reading lines with no
+//      full stop as one sentence also changed what each figure was taken to
+//      BE: in "Rates from 8.99% APR" / "2% origination fee" the fee was
+//      nearer to the "APR" on the line above and was flagged as a 2.00% APR.
+//      Now two things are kept apart. What a figure is, and what is quoted,
+//      is decided on its own line, as before round 8. Whether a claim says
+//      nothing more is decided on the whole statement, across a line break
+//      with no full stop. An ad pasted as a list is held in amber line by
+//      line; it is not red, and it is not green. "?!" counts as a question.
 //
 // What this file still cannot do, by design: it reads one sentence at a time,
 // and of the words before a figure it reads only "no", "not", "never" and a
@@ -335,6 +345,33 @@ function wordsToNumber(whole: string, decimals: string | undefined): number {
   return value;
 }
 
+/**
+ * One sentence on one line: a line break always ends it. This is what decides
+ * WHAT a figure is (the nearest "APR" or "fee" on its own line) and what is
+ * quoted to the reviewer. Whether a claim says nothing more is decided on
+ * sentenceBounds below, which reads on across a line break with no full stop.
+ */
+function lineBounds(norm: string, at: number): [number, number] {
+  const isBreak = (i: number) =>
+    norm[i] === "\n" ||
+    ((norm[i] === "." || norm[i] === "!" || norm[i] === "?") && (i + 1 >= norm.length || /\s/.test(norm[i + 1])));
+  let start = at;
+  while (start > 0 && !isBreak(start - 1)) start--;
+  let end = at;
+  while (end < norm.length && !isBreak(end)) end++;
+  return [start, end];
+}
+
+/** True when the punctuation that ends a sentence at `end` includes a question mark: "?", "?!", "!?". */
+function asksQuestion(norm: string, end: number): boolean {
+  for (let i = end; i >= 0 && /[.!?]/.test(norm[i] ?? ""); i--) if (norm[i] === "?") return true;
+  return false;
+}
+
+/**
+ * The whole statement a claim sits in. Unlike lineBounds, it reads on across a
+ * line break that does not follow a full stop, "!" or "?".
+ */
 function sentenceBounds(norm: string, at: number): [number, number] {
   // A line break ends a sentence only after a full stop, "!" or "?", or next
   // to a blank line. "No fees" on one line and "for late payments" on the next
@@ -420,7 +457,7 @@ export function findClaims(text: string): Claim[] {
     // If the words at that position do not normalize back to what was matched,
     // the position cannot be trusted: quote the whole sentence instead.
     if (normalizeWithMap(text.slice(start, end)).norm !== lower.slice(s, e)) {
-      const [ss, se] = sentenceBounds(lower, s);
+      const [ss, se] = lineBounds(lower, s);
       start = map[ss];
       end = map[se];
     }
@@ -437,7 +474,7 @@ export function findClaims(text: string): Claim[] {
     read.push([m.index, m.index + m[0].length]);
     const noFee: Claim = { kind: "no_fee", value: 0, ...toOriginal(m.index, m.index + m[0].length) };
     const [ss, se] = sentenceBounds(lower, m.index);
-    if (bare(lower.slice(ss, se)) === bare(m[0]) && lower[se] !== "?") noFee.plain = true;
+    if (bare(lower.slice(ss, se)) === bare(m[0]) && !asksQuestion(lower, se)) noFee.plain = true;
     claims.push(noFee);
   }
 
@@ -460,10 +497,14 @@ export function findClaims(text: string): Claim[] {
     let e = n.e;
     if (noFeeSpans.some(([a, b]) => s >= a && s < b)) continue;
     const value = n.value;
+    // The statement the figure sits in, and its own line within it. The line
+    // decides what the figure is; the statement decides whether it is plain.
     const [ss, se] = sentenceBounds(lower, s);
     const sentence = lower.slice(ss, se);
-    const rate = nearest(RATE_WORDS, sentence, s - ss);
-    const fee = nearest(FEE_WORDS, sentence, s - ss);
+    const [ls, le] = lineBounds(lower, s);
+    const line = lower.slice(ls, le);
+    const rate = nearest(RATE_WORDS, line, s - ls);
+    const fee = nearest(FEE_WORDS, line, s - ls);
     let kind: ClaimKind = "unclassified";
     // The closer word decides. On a tie the figure is read as a rate: a wrong
     // rate is the costlier miss, and a rate out of range is always flagged.
@@ -478,10 +519,10 @@ export function findClaims(text: string): Claim[] {
     // "Interest rate 6.99%, APR 8.99%": the offer sheet has no separate
     // interest rate. In a sentence about interest, a figure is called an APR
     // only when "APR" directly follows it. Otherwise it is held.
-    if (kind === "apr" && !tail && /\binterest\b/.test(sentence)) kind = "unclassified";
+    if (kind === "apr" && !tail && /\binterest\b/.test(line)) kind = "unclassified";
     if (kind === "apr" && tail) e += tail[0].length;
     const claim: Claim = { kind, value, ...toOriginal(s, e) };
-    if (kind === "fee" && lower[se] !== "?" && saysOnlyTheFee(sentence, n.s - ss, n.e - ss)) claim.plain = true;
+    if (kind === "fee" && !asksQuestion(lower, se) && saysOnlyTheFee(sentence, n.s - ss, n.e - ss)) claim.plain = true;
     if (kind === "apr") {
       // What the words just before the figure say it is. Used only to hold a
       // figure back or to withhold a suggested edit, never to call a match.
@@ -493,7 +534,7 @@ export function findClaims(text: string): Claim[] {
       const label = /^\s*(maximum|max|minimum|min)\b/.exec(lower.slice(e));
       if (label && !claim.endpoint) claim.endpoint = label[1].startsWith("max") ? "maximum" : "minimum";
       if (NEGATION.test(lower.slice(ss, n.s))) claim.negated = true;
-      if (lower[se] === "?") claim.question = true;
+      if (asksQuestion(lower, se)) claim.question = true;
       // A comma followed by a space, not the comma inside "$5,000".
       if (/,\s/.test(lower.slice(ss, n.s))) claim.afterClause = true;
     }
@@ -539,7 +580,7 @@ export function findClaims(text: string): Claim[] {
     let s = m.index;
     let e = s + m[0].length;
     if (inRead(s, e)) continue;
-    const [ss, se] = sentenceBounds(lower, s);
+    const [ss, se] = lineBounds(lower, s);
     TOPIC_WORDS.lastIndex = 0;
     if (!TOPIC_WORDS.test(lower.slice(ss, se))) continue;
     const sign = /^\s{0,2}[%\u066A\uFE6A]/.exec(lower.slice(e));
@@ -570,7 +611,7 @@ export function findClaims(text: string): Claim[] {
   ];
   let from = 0;
   while (from < lower.length) {
-    const [ss, se] = sentenceBounds(lower, from);
+    const [ss, se] = lineBounds(lower, from);
     const sentence = lower.slice(ss, se);
     for (const [words, kinds] of topics) {
       const m = words.exec(sentence);

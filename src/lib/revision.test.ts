@@ -262,6 +262,20 @@ describe("the old figure somewhere else in the ad (round 6)", () => {
   });
 });
 
+describe("a drafted request that names no figure", () => {
+  it("does not call the corrected figure 'not the one requested'", () => {
+    // The seeded hostile ad: the sentence goes on after the figure, so the draft suggests no figure.
+    const from = "Winter savings event! ClearPath personal loans from 6.99% APR with no fees.";
+    const flagged = analyzeCopy(from, terms).checks.find((c) => c.claim.kind === "apr")!;
+    expect(flagged.suggestion).toBeNull();
+    const to = "Winter savings event! ClearPath personal loans from 8.99% APR.";
+    const { outcomes } = reviewRevision(from, to, [{ anchorText: flagged.claim.quote, body: draftRequest(flagged) }], terms);
+    expect(outcomes[0].outcome).toBe("changed");
+    expect(outcomes[0].detail).toMatch(/named no figure/);
+    expect(outcomes[0].detail).not.toMatch(/not the one requested/);
+  });
+});
+
 describe("word differences", () => {
   it("shows the replaced rate and the added sentence", () => {
     const parts = diffWords(V1, V2).filter((p) => p.type !== "same");

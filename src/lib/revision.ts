@@ -149,10 +149,16 @@ export function reviewRevision(
         const exact = asked === null ? undefined : fresh.find((c) => c.claim.value === asked);
         if (exact) return { request, outcome: "requested_present", detail: `${arrow(exact)} That is the figure the request asked for.` };
         if (fromDraft) {
+          // The drafted request names a figure only when the check could
+          // suggest one. When it named none, there is nothing for the new
+          // figure to differ from: say what changed and ask.
           return {
             request,
             outcome: "changed",
-            detail: `${arrow(fresh[0])} ${asked === null ? "" : `The request asked for ${asked}%. `}The new figure is within the offer, but it is not the one requested. Confirm it answers your request.`,
+            detail:
+              asked === null
+                ? `${arrow(fresh[0])} The request named no figure to change it to. The new figure matches the offer. Confirm it answers your request.`
+                : `${arrow(fresh[0])} The request asked for ${asked}%. The new figure is within the offer, but it is not the one requested. Confirm it answers your request.`,
           };
         }
         return {

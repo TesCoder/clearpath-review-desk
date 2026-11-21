@@ -100,17 +100,18 @@ export default async function OfferSheet(props: PageProps<"/offers">) {
   }
   // The list is what the save recorded. Where each ad stands is worked out
   // now, so a reloaded receipt does not go on saying all of them need review.
-  // "Reviewed" means a reviewer's decision on the ad's latest version was
-  // recorded after this save. A marketer's edit or a move is not a review, and
-  // neither is a decision on an older version: the ad is still waiting.
-  const since = (a: AssetView): "waiting" | "reviewed" | "covered" | "changed" =>
-    a.status === "offer_changed"
-      ? "waiting"
-      : a.decisions.some((d) => d.versionNumber === a.latest.number && new Date(d.createdAt).getTime() > savedAt)
-        ? "reviewed"
-        : a.status === "approved"
-          ? "covered"
-          : "changed";
+  // Where each ad stands now comes first: the same status the queue shows.
+  // "Reviewed" is said only of an ad that is not waiting for a decision now
+  // (approved, or sent back to the marketer) and whose latest version has a
+  // decision recorded after this save. An ad that was reviewed and then
+  // edited or moved again is waiting, whatever happened in between.
+  const since = (a: AssetView): "waiting" | "reviewed" | "covered" | "changed" => {
+    if (a.status === "offer_changed") return "waiting";
+    const decidedSince = a.decisions.some((d) => d.versionNumber === a.latest.number && new Date(d.createdAt).getTime() > savedAt);
+    if (a.status === "approved") return decidedSince ? "reviewed" : "covered";
+    if (a.status === "changes_requested") return decidedSince ? "reviewed" : "changed";
+    return "changed";
+  };
   const untouched = affected.filter((a) => since(a) === "waiting").length;
   const stillOpen = affected.filter((a) => since(a) === "waiting" || since(a) === "changed").length;
   const allReviewed = affected.every((a) => since(a) === "reviewed");

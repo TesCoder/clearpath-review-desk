@@ -154,6 +154,16 @@ const V3 = 'Compare ClearPath personal loans. Rates from 8.99% APR.';
   ok('a marketer edit is not called a review: the ad still needs a decision',
     /1 still needs a decision/.test(afterEdit) && !/All have been reviewed since/.test(afterEdit) &&
     /AD-1038[^:]*: edited or moved since, still waiting for a decision/.test(afterEdit));
+  // An ad that was reviewed and then moved is waiting again: the receipt follows where it stands now.
+  await page.goto(BASE + '/ads/AD-1041');
+  await page.waitForSelector('button:has-text("Move this ad")');
+  await page.selectOption('select[name=placement]', 'Blog article');
+  await page.click('button:has-text("Move this ad")');
+  await page.waitForSelector('text=back in the review queue');
+  const afterMove = await receipt();
+  console.log('receipt after a reviewed ad was moved:', afterMove);
+  ok('an ad that was reviewed and then moved is counted as waiting again',
+    /2 still need a decision/.test(afterMove) && /AD-1041[^:]*: edited or moved since, still waiting for a decision/.test(afterMove));
 
   // 8. The server refuses a change to the offer sheet from the Marketer view, even from a form loaded as the reviewer.
   await page.click('header button[value=reviewer]');

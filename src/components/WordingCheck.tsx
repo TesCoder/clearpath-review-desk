@@ -94,7 +94,7 @@ export function WordingCheck({
               <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950" data-note="not-recorded">
                 This check was not added to the record
                 {answer.state === "incomplete" ? ": the AI gave no answer that could be kept" : ": this demo has reached its limit of recorded wording checks"}.
-                The reviewer will not be told that it ran, and the AI reads the ad again for them.
+                The reviewer will not be told that it ran.
               </p>
             ) : null}
             {answer.state === "nothing" ? (
@@ -137,9 +137,11 @@ export function WordingCheck({
             ) : null}
             {answer.state !== "unavailable" ? (
               <p className="text-xs text-slate-600">
-                {n > 0 ? "Fix the wording above, or submit as it is. " : ""}If you submit this exact text, the reviewer is
-                told that you ran this check and what it showed. Every quote here was confirmed to be in your draft, word
-                for word.
+                {n > 0 ? "Fix the wording above, or submit as it is. " : ""}
+                {answer.recorded === false
+                  ? ""
+                  : "If you submit this exact text, the reviewer is told that you ran this check and what it showed. "}
+                Every quote here was confirmed to be in your draft, word for word.
               </p>
             ) : null}
           </div>

@@ -639,6 +639,33 @@ describe("a match depends on the shape of the sentence too (round 8)", () => {
     }
   });
 
+  it("an ad pasted as a list is held line by line: not red, not green (round 10)", () => {
+    // What each figure is comes from its own line: the fee is a fee, not an APR.
+    const two = checks("Rates from 8.99% APR\n2% origination fee");
+    expect(two.map((c) => [c.claim.kind, c.status])).toEqual([["apr", "needs_reviewer"], ["fee", "needs_reviewer"]]);
+    const four = checks("ClearPath Personal Loans\nRates from 8.99% APR\n2% origination fee\nApply today");
+    expect(four.some((c) => c.status === "mismatch")).toBe(false);
+    expect(four.some((c) => c.status === "ok")).toBe(false);
+    // "100% online" on its own line is not read as an APR because another line mentions rates.
+    const online = checks("Fast funding\n100% online\nRates from 8.99% APR");
+    expect(online.some((c) => c.status === "mismatch")).toBe(false);
+    // Each amber line quotes its own line, not the whole ad.
+    expect(two.every((c) => !c.claim.quote.includes("\n"))).toBe(true);
+    // With a full stop on each line, or a blank line between them, each line is its own sentence.
+    expect(greens("Rates from 8.99% APR.\nA 2% origination fee applies.")).toBe(2);
+    expect(greens("Rates from 8.99% APR\n\nA 2% origination fee applies")).toBe(2);
+    // A wrong fee on its own line is still flagged, as a fee.
+    const wrong = checks("Rates from 8.99% APR\n1% origination fee");
+    expect(wrong.find((c) => c.claim.kind === "fee")).toMatchObject({ status: "mismatch", suggestion: null });
+  });
+
+  it('"?!" ends a question too (round 10)', () => {
+    for (const t of ["Rates from 8.99% APR?!", "A 2% origination fee applies?!", "Rates from 8.99% APR!?"]) {
+      expect(greens(t), t).toBe(0);
+    }
+    expect(edits("Rates from 6.99% APR?!")).toBe(0);
+  });
+
   it("what a shape rule cannot see is still a match: stated as a limit in the README", () => {
     // Kept as tests so the limit is written down where the code is, not discovered.
     expect(greens("A 2% origination fee applies. Only on your second loan.")).toBe(1);
