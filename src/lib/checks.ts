@@ -3,7 +3,7 @@
 // What this file decides: whether a claim in ad copy "matches" the offer,
 // "does not match", or "needs the reviewer".
 //
-// It has been corrected fifteen times, each time after a test or a review found
+// It has been corrected sixteen times, each time after a test or a review found
 // a misread. After the second, the approach changed: instead of teaching the
 // code more wording, it reads a short list of exact forms and holds
 // everything else open for a person. Rounds 3 to 9 each made it say less;
@@ -122,7 +122,7 @@
 //      it, which ends a red false alarm on "Rates from 8.99% APR, 2%
 //      origination fee". Neither label names the figure before it when a
 //      number comes straight after the label: in a row of cells run
-//      together ("Origination fee - 2% APR - 8.99%") it is the label of the
+//      together ("Origination fee - 2.00% APR - 8.99%") it is the label of the
 //      next cell. An independent old-against-new run on 111,000 generated
 //      texts found that row case before this was committed. (c) On a line that says
 //      "interest", the low end of a range is an APR when "APR" follows the
@@ -133,6 +133,15 @@
 //      own statement: a heading "Option one" above a blank line had made
 //      "Six percent ... APR" below it disappear, with the page left green.
 //      And a figure that guard skips now always has its line held.
+//  16. A seventh sweep found two faults that round 15 had made. Part (e)
+//      turned "A three point", blank line, "two percent origination fee
+//      applies" into a green 2%: undone, the guard reads all the text before
+//      the figure again, and the heading case is held in amber by the hold
+//      that (e) added. And the test for "the label belongs to the next cell"
+//      missed a footnote mark or a bracket before the next value ("APR: 2%
+//      Origination fee\u00B9: 2%" lost its red flag; the true "APR: 8.99%
+//      Origination fee\u00B9: 2%" gained one): it now looks for a percentage
+//      after the label.
 //      What still reads across a line break, on purpose: whether a claim
 //      says nothing more, and the lead-in before a rate ("from", "up to"),
 //      both within one statement; and a figure whose "%" or "percent" is on
@@ -401,6 +410,9 @@ const WORD_PERCENT = new RegExp(
   "g",
 );
 
+// A number written in words at the very start of what follows a label.
+const NUMBER_WORD_NEXT = new RegExp(`^(?:${[...UNITS].reverse().join("|")}|${TENS.join("|")})\\b`);
+
 // Words that make a written-out number part of a larger one: "one hundred
 // twelve percent" is not twelve percent.
 const LARGER_NUMBER_BEFORE = new RegExp(
@@ -569,10 +581,14 @@ export function findClaims(text: string): Claim[] {
   WORD_PERCENT.lastIndex = 0;
   for (let m = WORD_PERCENT.exec(lower); m; m = WORD_PERCENT.exec(lower)) {
     // Part of a larger written-out number: not read, and its line is held
-    // below whatever else is on it. The words before it are read inside its
-    // own statement: "Option one" as a heading above a blank line is not the
-    // start of "one ... six percent".
-    if (LARGER_NUMBER_BEFORE.test(lower.slice(sentenceBounds(lower, m.index)[0], m.index))) {
+    // below whatever else is on it. All the text before it is read for this,
+    // across line breaks and blank lines: "A three point", a blank line,
+    // "two percent origination fee applies" is 3.2%, not a true 2%. Round 15
+    // read only the figure's own statement here, to get a red flag on "Six
+    // percent ... APR" under a heading "Option one"; that made the split
+    // 3.2% a green 2%, so it was undone. Under such a heading the line is
+    // now held in amber, which is the safe side of the two.
+    if (LARGER_NUMBER_BEFORE.test(lower.slice(0, m.index))) {
       skippedWritten.push(m.index);
       continue;
     }
@@ -600,11 +616,22 @@ export function findClaims(text: string): Claim[] {
     // is a fee and "6.99% APR" is a rate, whichever word is nearer by count.
     // The exception is a row of cells run together on one line, where the
     // label belongs to the NEXT figure: "APR 8.99% Origination fee 2%",
-    // "Origination fee - 2% APR - 8.99%". There a number comes straight after
+    // "Origination fee - 2.00% APR - 8.99%". There a number comes straight after
     // the label, with a space, a colon, an equals sign, a dash or a lead-in
-    // word between. A footnote digit typed against the label is not that.
-    const startsNextCell = (after: string) =>
-      /^[\s:=|\-\u2013\u2014]+(?:(?:from|of|is|at|as low as|up to|starting at|starts at)\s+)?\d/.test(after);
+    // word between. So the test is: after the label, and after any footnote
+    // mark, punctuation, bracket or lead-in word, the next thing is a
+    // percentage ("Origination fee\u00B9: 2%", "Origination fee: (2%)", "APR
+    // from 8.99%"). A term in months after the label ("6.99% APR 36 months")
+    // is not a percentage, so there the label is this figure's.
+    // A comma or a semicolon is not a cell border: in "6.99% APR, 5% late fee"
+    // the "APR" is this figure's. The value may be written in words
+    // ("Origination fee: two percent"). Words that are not a value do not
+    // make a cell: in "6.99% APR: fixed for life" the "APR" is this figure's.
+    const startsNextCell = (after: string) => {
+      const rest = after.replace(/^\d{1,2}(?![\d.,%])/, "").replace(/^[^a-z\d\n,;]*/, "");
+      const value = rest.replace(/^(?:(?:from|of|is|at|as low as|up to|starting at|starts at)\s+)?[^a-z\d\n,;]*/, "");
+      return /^\d{1,3}(?:[.,]\d{1,3})?\s?(?:%|percent)/.test(value) || NUMBER_WORD_NEXT.test(value);
+    };
     const feeLabel = /^[^\S\n]+origination[^\S\n]+fees?(?![a-z])/.exec(line.slice(n.e - ls));
     if (feeLabel && !startsNextCell(line.slice(n.e - ls + feeLabel[0].length))) kind = "fee";
     // The offer sheet states one fee, the origination fee. A fee figure is
@@ -625,7 +652,9 @@ export function findClaims(text: string): Claim[] {
     // fee ("Origination fee 2% APR 8.99%") stays a fee. So does a figure
     // that a fee label points straight at, with only a space, a colon or
     // "of" between ("Late fee 5% APR 8.99%", a table row run together):
-    // there "APR" starts the next cell.
+    // there "APR" starts the next cell. ("Origination fee - 2.00% APR - 8.99%"
+    // is held; with a two-character "2%" the count ties and the rate wins,
+    // which the README lists among the red false alarms.)
     const labelledAsFee = /(?:origination|fees?)(?![a-z])[\s:]*(?:of\s+)?$/.test(line.slice(0, s - ls));
     const aprNamesThis = tail !== null && !startsNextCell(line.slice(e - ls + tail[0].length));
     if (kind === "unclassified" && aprNamesThis && !labelledAsFee) kind = "apr";

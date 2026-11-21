@@ -764,7 +764,28 @@ describe("a match depends on the shape of the sentence too (round 8)", () => {
     expect(reds("Interest rate 6.99%, APR 8.99%.")).toEqual([]);
     expect(reds("Low interest rates from 6.99% APR.")).toEqual(["6.99% APR"]);
     // A heading that ends in a number word does not make a written-out rate below it disappear.
-    expect(reds("Option one\n\nSix percent introductory APR then rates from 8.99% APR.")).toEqual(["Six percent"]);
+    // Round 16: under a heading that ends in a number word the line is held, not read. Reading it made a split "three point / two percent" a green 2%.
+    const heading = checks("Option one\n\nSix percent introductory APR then rates from 8.99% APR.");
+    expect(heading.some((c) => c.status === "needs_reviewer" && /Six percent/.test(c.claim.quote))).toBe(true);
+    for (const t of ["A three point\n\ntwo percent origination fee applies.", "A two point\n\nzero percent origination fee applies.", "A three point\ntwo percent origination fee applies.", "Rates from twenty\n\nnine percent APR."]) {
+      expect(checks(t).length, t).toBeGreaterThan(0);
+      expect(checks(t).every((c) => c.status === "needs_reviewer"), t).toBe(true);
+      expect(edits(t), t).toBe(0);
+    }
+    // Round 16: a footnote mark or a bracket before the next cell's value does not hide that it is the next cell.
+    expect(reds("APR: 2%  Origination fee\u00B9: 2%")).toEqual(["2%"]);
+    for (const t of ["APR: 8.99%  Origination fee\u00B9: 2%", "APR 8.99% Origination fee*: 2%", "APR: 8.99%  Origination fee: (2%)", "APR\t8.99%\tOrigination fee*\t2%"]) expect(reds(t), t).toEqual([]);
+    expect(reds("Low fees, 6.99% APR 36 months")).toEqual(["6.99% APR"]);
+    for (const t of ["A twenty-\n\ntwo percent origination fee applies.", "A twenty-\n\nthree percent origination fee applies."]) {
+      expect(checks(t).every((c) => c.status === "needs_reviewer"), t).toBe(true);
+      expect(edits(t), t).toBe(0);
+    }
+    expect(reds("A twenty-two percent origination fee applies.")).toEqual(["twenty-two percent"]);
+    expect(reds("APR: 2%  Origination fee: two percent")).toEqual(["2%"]);
+    expect(reds("APR: 2%  Origination fee: (2%)")).toEqual(["2%"]);
+    // A comma is not a cell border: the label before it is the figure's own.
+    expect(reds("2% origination fee, 6.99% APR, 5% late fee")).toContain("6.99% APR");
+    expect(reds("Rates from 8.99% APR, 2% origination fee, 5% late fee")).not.toContain("2%");
     expect(reds("Six percent introductory APR then rates from 8.99% APR.")).toEqual(["Six percent"]);
     // A larger written-out number is never read as its last words, and its line is always held.
     const larger = checks("One hundred six percent introductory APR, then rates from 8.99% APR.");
