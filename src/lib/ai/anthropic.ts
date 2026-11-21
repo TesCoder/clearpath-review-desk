@@ -12,6 +12,18 @@ export const MODEL_ID = "claude-sonnet-5-5";
 
 let client: Anthropic | null = null;
 
+/**
+ * How long one model call may take. The default suits a page: it stays under
+ * a 10 second limit for a server function, and a slower call ends as
+ * "unavailable" with a Try again button. AI_TIMEOUT_MS overrides it. The
+ * evaluation sets a longer limit, because it measures what the model reads,
+ * not how fast it answers.
+ */
+function timeoutMs(): number {
+  const set = Number(process.env.AI_TIMEOUT_MS);
+  return Number.isInteger(set) && set >= 1_000 && set <= 120_000 ? set : 9_000;
+}
+
 export function hasApiKey(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
@@ -20,7 +32,7 @@ export const anthropicModel: ClaimModel = {
   name: MODEL_ID,
   async find({ system, user }) {
     if (!hasApiKey()) throw new ModelError("not_configured", "ANTHROPIC_API_KEY is not set.");
-    client ??= new Anthropic({ timeout: 9_000, maxRetries: 0 });
+    client ??= new Anthropic({ timeout: timeoutMs(), maxRetries: 0 });
     let response;
     try {
       response = await client.messages.parse({

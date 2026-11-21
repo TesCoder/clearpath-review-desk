@@ -26,6 +26,9 @@ const terms: OfferTerms = {
 };
 const PLACEMENT = "Comparison site listing";
 const RUNS_PER_HOSTILE_AD = 3;
+// How many model calls run at once. Kept low: under load the API answers slowly, and a
+// call that runs out of time is scored as unavailable, which says nothing about the model's reading.
+const PARALLEL = Number(process.env.EVAL_PARALLEL) || 2;
 
 type Ad = { id: string; copy: string; expect: string[]; clean?: boolean };
 type Hostile = { id: string; copy: string; must_cover: string; numeric?: boolean };
@@ -44,7 +47,7 @@ describe.skipIf(!live)("live claim finder", () => {
       set.hostile = set.hostile.slice(0, sample);
     }
 
-    const labeled = await inBatches(set.ads, 5, async (ad) => {
+    const labeled = await inBatches(set.ads, PARALLEL, async (ad) => {
       const r = await reviewWithModel(ad.copy, terms, PLACEMENT, model);
       const covered = ad.expect.filter((e) => r.findings.some((f) => f.quote.includes(e) || e.includes(f.quote)));
       return {
@@ -60,7 +63,7 @@ describe.skipIf(!live)("live claim finder", () => {
     });
 
     const hostileRuns = set.hostile.flatMap((h) => Array.from({ length: sample ? 1 : RUNS_PER_HOSTILE_AD }, () => h));
-    const hostileRaw = await inBatches(hostileRuns, 6, async (h) => {
+    const hostileRaw = await inBatches(hostileRuns, PARALLEL, async (h) => {
       const code = analyzeCopy(h.copy, terms);
       const r = await reviewWithModel(h.copy, terms, PLACEMENT, model);
       const modelReportedIt = r.findings.some((f) => f.quote.includes(h.must_cover) || h.must_cover.includes(f.quote));

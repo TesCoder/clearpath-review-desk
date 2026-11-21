@@ -90,4 +90,8 @@ export type AiReview = {
   answered: boolean;
 };
 
-export const PROMPT_VERSION = "2026-11-20.1";
+// Stored AI results are kept per prompt version. Raise it whenever the prompt
+// or what is stored with a result changes, so older results are read again.
+// ".2": results stored before the "addressed to an AI" flag was kept did not
+// carry it, and what counts as a complete read was tightened.
+export const PROMPT_VERSION = "2026-11-20.2";
