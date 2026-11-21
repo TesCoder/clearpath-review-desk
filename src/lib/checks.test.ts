@@ -666,11 +666,56 @@ describe("a match depends on the shape of the sentence too (round 8)", () => {
     expect(edits("Rates from 6.99% APR?!")).toBe(0);
   });
 
+  it("what is read around a figure stays on its own line or in its own statement (round 11)", () => {
+    // A headline above a blank line says nothing about a rate in the next paragraph.
+    expect(edits("6.99% APR.")).toBe(0);
+    expect(edits("Two options to choose from\n\n6.99% APR.")).toBe(0);
+    const amount = checks("Borrow up to $5,000\n\nRates from 8.99% APR.");
+    expect(amount.map((c) => c.status)).toEqual(["ok"]);
+    // The dash that starts a bulleted line is not the dash of a range.
+    expect(greens("- 8.99% APR\n- 35.99% APR")).toBe(0);
+    expect(greens("8.99% APR -\n35.99% APR")).toBe(0);
+    expect(greens("8.99% - 35.99% APR")).toBe(2);
+    // "APR" on the next line is not this figure's label.
+    const table = checks("Interest rate: 7.00%\nAPR: 8.99%");
+    expect(table.filter((c) => c.status === "mismatch")).toHaveLength(0);
+    expect(table.some((c) => /7\.00% APR/.test(c.message))).toBe(false);
+    const split = checks("Rates from 8.99%\nAPR.");
+    expect(split.every((c) => c.status === "needs_reviewer")).toBe(true);
+    expect(split.some((c) => /unusual characters/.test(c.message))).toBe(false);
+    // Nor is "Maximum" on the next line.
+    const next = checks("Rates from 8.99% APR\nMaximum loan amount $50,000");
+    expect(next.some((c) => /states a maximum APR/.test(c.message))).toBe(false);
+    expect(next.filter((c) => c.status === "ok")).toHaveLength(0);
+  });
+
+  it("an amber message says what was held (round 11, wording only)", () => {
+    const both = checks("Borrow up to $50,000 with rates from 8.99% APR.").find((c) => c.claim.kind === "apr")!;
+    expect(both.status).toBe("needs_reviewer");
+    expect(both.message).not.toMatch(/states a maximum APR/);
+    for (const c of checks("Rates from 8.99% APR\n2% origination fee")) {
+      expect(c.status).toBe("needs_reviewer");
+      expect(c.message).toMatch(/says more than that, on this line or the next/);
+    }
+    // A stated maximum that is not the offer's keeps its own message.
+    expect(checks("The maximum APR is 12.99%.")[0].message).toMatch(/states a maximum APR of 12\.99%/);
+  });
+
   it("what a shape rule cannot see is still a match: stated as a limit in the README", () => {
     // Kept as tests so the limit is written down where the code is, not discovered.
+    // The last line of a list has nothing after it, so a plain rate there is a match.
+    expect(greens("2% origination fee\nRates from 8.99% APR")).toBe(1);
     expect(greens("A 2% origination fee applies. Only on your second loan.")).toBe(1);
     expect(greens("Nobody pays rates from 8.99% APR.")).toBe(1);
     expect(greens("Rates after the introductory period are from 8.99% APR.")).toBe(1);
     expect(greens("Promotional teaser rates from 8.99% APR.")).toBe(1);
+  });
+
+  it("two red false alarms on true ads: stated as a limit in the README", () => {
+    // A fee straight after "APR" on the same line: nearness is counted from the start of the figure.
+    expect(checks("Rates from 8.99% APR, 2% origination fee.").some((c) => c.status === "mismatch" && /2\.00% APR/.test(c.message))).toBe(true);
+    expect(checks("Rates from 8.99% APR. A 2% origination fee applies.").every((c) => c.status === "ok")).toBe(true);
+    // A fee whose name wraps to the next line is read on its own line, where only "rates" is.
+    expect(checks("Enjoy low rates and a 2%\norigination fee.").some((c) => c.status === "mismatch" && /2\.00% APR/.test(c.message))).toBe(true);
   });
 });

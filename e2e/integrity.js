@@ -117,10 +117,10 @@ const approvals = async (page) => ((await page.innerText('section:has(h2:has-tex
     const late = await live('No fees for late payments.');
     ok('"No fees for late payments" is flagged with no one-click fix', /lists a 2\.00% origination fee/.test(late) && (await p.$$('[aria-live=polite] button:has-text("Change to")')).length === 0);
     const waived = await live('The 2% origination fee is waived for new customers.');
-    ok('a fee sentence that says more than the fee is held, not green', /its sentence says more than that/.test(waived) && (await green()) === 0);
+    ok('a fee sentence that says more than the fee is held, not green', /says more than that/.test(waived) && (await green()) === 0);
     // A match needs wording that states it, not only the right figure.
     const conditional = await live('Only returning borrowers pay a 2% origination fee.');
-    ok('a fee limited to some borrowers is held, not green', /its sentence says more than that/.test(conditional) && (await green()) === 0);
+    ok('a fee limited to some borrowers is held, not green', /says more than that/.test(conditional) && (await green()) === 0);
     await live('Only returning borrowers pay a 1% origination fee.');
     ok('a wrong fee limited to some borrowers flags with no "Change to" button', (await p.$$('[aria-live=polite] button:has-text("Change to")')).length === 0);
     const never = await live('Our APR never exceeds 8.99%.');
@@ -152,6 +152,13 @@ const approvals = async (page) => ((await page.innerText('section:has(h2:has-tex
     const list = await live('Rates from 8.99% APR\n2% origination fee');
     ok('a true ad pasted as two lines is held, with no red flag and no fee read as an APR',
       (await green()) === 0 && !/2\.00% APR/.test(list) && (await p.$$('[aria-live=polite] li.text-red-950')).length === 0);
+    await live('Two options to choose from\n\n6.99% APR.');
+    ok('a headline above a blank line earns the bare rate below it no "Change to" button', (await buttons()) === 0);
+    await live('- 8.99% APR\n- 35.99% APR');
+    ok('two bulleted rates are not read as a range: held, not green', (await green()) === 0);
+    const table = await live('Interest rate: 7.00%\nAPR: 8.99%');
+    ok('an interest rate above an APR line is not flagged red as "7.00% APR"',
+      !/7\.00% APR/.test(table) && (await p.$$('[aria-live=polite] li.text-red-950')).length === 0);
     await live('Rates from 8.99% APR. A 2% origination fee applies.');
     ok('after all that, the plain statements are still green', (await green()) === 2);
     const plainFee = await live('Rates from 8.99% APR. A 2% origination fee applies.');

@@ -3,11 +3,11 @@
 // What this file decides: whether a claim in ad copy "matches" the offer,
 // "does not match", or "needs the reviewer".
 //
-// It has been corrected ten times, each time after a test or a review found
+// It has been corrected eleven times, each time after a test or a review found
 // a misread. After the second, the approach changed: instead of teaching the
 // code more wording, it reads a short list of exact forms and holds
 // everything else open for a person. Rounds 3 to 9 each made it say less;
-// round 10 undid a side effect of round 8.
+// round 10 undid a side effect of round 8, and round 11 added no rule.
 //   1. A manual test of the submit form: a rate written in words was read as
 //      nothing to compare. Added percentages written out in words.
 //   2. An independent review: ranges, unusual digits and percent signs, and
@@ -67,6 +67,17 @@
 //      nothing more is decided on the whole statement, across a line break
 //      with no full stop. An ad pasted as a list is held in amber line by
 //      line; it is not red, and it is not green. "?!" counts as a question.
+//  11. A fourth sweep found three lookups around a figure that still read
+//      past its line or its paragraph, against the rule of round 10. A
+//      heading that ended in "from" earned a bare "6.99% APR." below a blank
+//      line a one-click edit. "- 8.99% APR" / "- 35.99% APR" was green as a
+//      range, by the second bullet's dash. "Interest rate: 7.00%" above
+//      "APR: 8.99%" was flagged red as a 7.00% APR, by the next line's label.
+//      Each lookup is now kept inside the figure's own line (a trailing
+//      "APR", a label after the figure, the dash of a range) or its own
+//      statement (the words before it). No word was added to any list. Three
+//      amber messages were reworded to say what was held; no result changed
+//      with them.
 //
 // What this file still cannot do, by design: it reads one sentence at a time,
 // and of the words before a figure it reads only "no", "not", "never" and a
@@ -75,7 +86,11 @@
 // rates from 8.99% APR") and a qualifier before the figure ("Rates after the
 // introductory period are from 8.99% APR") still show the figure as a match.
 // No list of words closes that. The README says so, and the reviewer and the
-// AI read the sentence.
+// AI read the sentence. Two red false alarms on true ads are also left as
+// they are and stated in the README: a fee straight after "APR" on one line
+// ("Rates from 8.99% APR, 2% origination fee": nearness is counted from the
+// start of the figure, so the fee is read as a 2.00% APR), and a fee whose
+// name wraps to the next line.
 //
 // The only forms this file reads as a figure (the approved forms):
 //   1. digits, an optional decimal part, at most one space, then "%",
@@ -514,8 +529,10 @@ export function findClaims(text: string): Claim[] {
     // late or unnamed fee is held for the reviewer, with no suggested edit:
     // "changing 0% to 2%" on a prepayment fee would write a false claim.
     if (kind === "fee" && !namesOriginationFee(lower, n.s, n.e)) kind = "unclassified";
-    // Include a directly following "APR" in the quoted words.
-    const tail = /^\s?apr\b/.exec(lower.slice(e));
+    // Include a directly following "APR" in the quoted words, on the same
+    // line only. "Interest rate: 7.00%" above a line "APR: 8.99%" must not
+    // borrow that line's label and become a 7.00% APR.
+    const tail = /^[^\S\n]?apr\b/.exec(lower.slice(e));
     // "Interest rate 6.99%, APR 8.99%": the offer sheet has no separate
     // interest rate. In a sentence about interest, a figure is called an APR
     // only when "APR" directly follows it. Otherwise it is held.
@@ -526,12 +543,16 @@ export function findClaims(text: string): Claim[] {
     if (kind === "apr") {
       // What the words just before the figure say it is. Used only to hold a
       // figure back or to withhold a suggested edit, never to call a match.
-      const lead = lower.slice(Math.max(0, n.s - 30), n.s);
+      // They are read inside the figure's own statement: a headline that
+      // ends in "from" or says "up to", above a blank line, says nothing
+      // about a rate in the next paragraph.
+      const lead = lower.slice(Math.max(ss, n.s - 30), n.s);
       if (/(?:\bfrom|\bas low as|\bstarting at|\bstarting from|\bstart at|\bstarts at)\s+$/.test(lead)) claim.statesMinimum = true;
       if (/\b(?:maximum|max|highest|up to|no more than|at most|capped at)\b[^.!?]*$/.test(lead)) claim.endpoint = "maximum";
       else if (/\b(?:minimum|lowest|as low as)\b[^.!?]*$/.test(lead)) claim.endpoint = "minimum";
       // The same label written after the figure: "12.99% APR maximum".
-      const label = /^\s*(maximum|max|minimum|min)\b/.exec(lower.slice(e));
+      // On the same line only: "Maximum loan amount" on the next line is not it.
+      const label = /^[^\S\n]*(maximum|max|minimum|min)\b/.exec(lower.slice(e));
       if (label && !claim.endpoint) claim.endpoint = label[1].startsWith("max") ? "maximum" : "minimum";
       if (NEGATION.test(lower.slice(ss, n.s))) claim.negated = true;
       if (asksQuestion(lower, se)) claim.question = true;
@@ -552,7 +573,9 @@ export function findClaims(text: string): Claim[] {
   for (let i = 0; i + 1 < rates.length; i++) {
     const end = figureSpans.get(rates[i])![1];
     const next = figureSpans.get(rates[i + 1])![0];
-    if (next - end <= 5 && /^\s*(?:-|\u2013|\u2014|to)\s*$/.test(lower.slice(end, next))) {
+    // Both on one line: the dash that starts a bulleted line is not a range.
+    const between = lower.slice(end, next);
+    if (next - end <= 5 && !between.includes("\n") && /^\s*(?:-|\u2013|\u2014|to)\s*$/.test(between)) {
       rates[i].rangeEnd = "low";
       rates[i + 1].rangeEnd = "high";
     }
@@ -564,7 +587,7 @@ export function findClaims(text: string): Claim[] {
     const own = figureSpans.get(rates[i])!;
     const from = rates[i].rangeEnd === "low" ? figureSpans.get(rates[i + 1])![1] : own[1];
     const [, sentenceEnd] = sentenceBounds(lower, own[0]);
-    const rest = lower.slice(from, sentenceEnd).replace(/^\s*(?:maximum|max|minimum|min)\b/, "");
+    const rest = lower.slice(from, sentenceEnd).replace(/^[^\S\n]*(?:maximum|max|minimum|min)\b/, "");
     if (bare(rest) !== "") rates[i].followed = true;
   }
 
@@ -659,10 +682,17 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
       // check cannot say more than that it differs, so the reviewer reads it.
       // Either way there is no suggested edit: swapping in the offer's lowest
       // rate would write a new false maximum.
+      // When the same words also lead in with "from" ("Borrow up to $50,000
+      // with rates from 8.99% APR"), the ad states no maximum rate: the check
+      // read "up to" about something else. The result is the same; the
+      // message says what the check could not tell.
+      const says = claim.statesMinimum
+        ? `The ad says ${percent(claim.value)} APR. The words before it read both as a lowest rate and as a highest one ("up to", "maximum"), so the check could not tell which the ad means.`
+        : `The ad states a maximum APR of ${percent(claim.value)}.`;
       return {
         claim,
         status: claim.value < terms.aprMin ? "mismatch" : "needs_reviewer",
-        message: `The ad states a maximum APR of ${percent(claim.value)}. The APR range on the ${terms.campaign} offer ${since} is ${range}.${claim.value < terms.aprMin ? "" : " Please read it."}`,
+        message: `${says} The APR range on the ${terms.campaign} offer ${since} is ${range}.${claim.value < terms.aprMin ? "" : " Please read it."}`,
         suggestion: null,
       };
     }
@@ -719,10 +749,17 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
     }
     if (claim.value === terms.aprMin || claim.value === terms.aprMax) {
       const which = claim.value === terms.aprMin ? "lowest" : "highest";
+      // Two reasons a figure at one end of the range is held, said apart: the
+      // ad states it as that end but its statement says more (it goes on, on
+      // this line or the next; it follows a clause; it is denied or asked),
+      // or the ad's words do not state it as that end at all.
+      const statedAsThatEnd = claim.value === terms.aprMin ? asLowest : asHighest;
       return {
         claim,
         status: "needs_reviewer",
-        message: `The ad says ${percent(claim.value)} APR. That is the ${which} APR on the offer (${range}), but the check could not read the ad's wording as stating it as the ${which} rate. Please read the claim.`,
+        message: statedAsThatEnd
+          ? `The ad says ${percent(claim.value)} APR. That is the ${which} APR on the offer (${range}), but its statement says more than that, on this line or the next. Please read the claim.`
+          : `The ad says ${percent(claim.value)} APR. That is the ${which} APR on the offer (${range}), but the check could not read the ad's wording as stating it as the ${which} rate. Please read the claim.`,
         suggestion: null,
       };
     }
@@ -755,7 +792,7 @@ export function checkClaim(claim: Claim, terms: OfferTerms): Check {
       return {
         claim,
         status: "needs_reviewer",
-        message: `The ad states a ${percent(claim.value)} origination fee, which is the figure on the offer, but its sentence says more than that. Please read it.`,
+        message: `The ad states a ${percent(claim.value)} origination fee, which is the figure on the offer, but its statement says more than that, on this line or the next. Please read it.`,
         suggestion: null,
       };
     }
@@ -829,10 +866,14 @@ export type CopyAnalysis = {
  */
 function holdUnusualForms(check: Check): Check {
   if (check.status !== "ok" || /^[\x20-\x7E]*$/.test(check.claim.quote)) return check;
+  // A claim that runs across a line break is held the same way, and told apart.
+  const wrapped = /^[\x20-\x7E\r\n\t]*$/.test(check.claim.quote);
   return {
     ...check,
     status: "needs_reviewer",
-    message: `The ad states "${check.claim.quote}" using unusual characters. Read as plain text it matches the offer, but please read it yourself.`,
+    message: wrapped
+      ? `The ad states "${check.claim.quote}" across a line break. Read as one line it matches the offer, but please read it yourself.`
+      : `The ad states "${check.claim.quote}" using unusual characters. Read as plain text it matches the offer, but please read it yourself.`,
     suggestion: null,
   };
 }

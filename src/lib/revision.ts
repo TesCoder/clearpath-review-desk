@@ -17,6 +17,9 @@
 // old figure written in words anywhere else in the ad ("Our minimum APR is six
 // point nine nine") counts as still there, and so does a deletion that leaves
 // something new for the check to hold ("No origination at all").
+// Two later changes were to what a message says, not to a label: a drafted
+// request that named no figure (a rate, then a fee whose sentence went on) is
+// no longer said to have asked for the figure that was written.
 
 import { analyzeCopy, draftRequest, normalizeWithMap, type Check, type ClaimKind, type OfferTerms } from "./checks";
 import { diffWords, hasAdditions } from "./diff";
@@ -135,11 +138,17 @@ export function reviewRevision(
       const fresh =
         figureGone && !broughtInHeld ? sameFamily.filter((c) => c.status === "ok" && !seenBefore.has(signature(c))) : [];
       // The figure the drafted request asked for, when it named one.
+      // A fee figure whose sentence goes on gets no suggested edit, so its
+      // drafted request names no figure either, the same as a rate.
       const asked = !fromDraft
         ? null
-        : flagged.claim.kind === "no_fee" || flagged.claim.kind === "fee"
+        : flagged.claim.kind === "no_fee"
           ? terms.feePct
-          : flagged.suggestion === null || flaggedValue === null
+          : flagged.claim.kind === "fee"
+            ? flagged.suggestion === null
+              ? null
+              : terms.feePct
+            : flagged.suggestion === null || flaggedValue === null
             ? null
             : // An edit is suggested for a rate only when it is stated as the lowest
               // rate and is below the offer's, so the figure asked for is that lowest APR.
@@ -181,7 +190,7 @@ export function reviewRevision(
           request,
           outcome: "changed",
           detail: same
-            ? `${arrow(same)} That is the figure the request asked for, but the check could not read the new wording as stating it as the offer's rate. Confirm it answers your request.`
+            ? `${arrow(same)} That is the figure the request asked for, but the check could not read the new wording as stating it as the offer's ${label}. Confirm it answers your request.`
             : `${arrow(freshHeld[0])} The request asked for ${asked}%. The new figure is inside the offer's range, but it is not the one requested. Confirm it answers your request.`,
         };
       }

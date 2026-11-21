@@ -276,6 +276,29 @@ describe("a drafted request that names no figure", () => {
   });
 });
 
+describe("a drafted fee request that names no figure", () => {
+  it("does not call the corrected fee 'the figure the request asked for'", () => {
+    // The sentence goes on after the fee, so the check suggests no edit and the draft names no figure.
+    const from = "A 4% origination fee applies for the first six months.";
+    const flagged = analyzeCopy(from, terms).checks.find((c) => c.claim.kind === "fee")!;
+    expect(flagged.status).toBe("mismatch");
+    expect(flagged.suggestion).toBeNull();
+    const to = "A 2% origination fee applies.";
+    const { outcomes } = reviewRevision(from, to, [{ anchorText: flagged.claim.quote, body: draftRequest(flagged) }], terms);
+    expect(outcomes[0].outcome).toBe("changed");
+    expect(outcomes[0].detail).toMatch(/named no figure/);
+    expect(outcomes[0].detail).not.toMatch(/the figure the request asked for/);
+  });
+
+  it("still names the requested fee when the draft did ask for one", () => {
+    const from = "A 4% origination fee applies.";
+    const flagged = analyzeCopy(from, terms).checks.find((c) => c.claim.kind === "fee")!;
+    expect(flagged.suggestion).not.toBeNull();
+    const { outcomes } = reviewRevision(from, "A 2% origination fee applies.", [{ anchorText: flagged.claim.quote, body: draftRequest(flagged) }], terms);
+    expect(outcomes[0].outcome).toBe("requested_present");
+  });
+});
+
 describe("word differences", () => {
   it("shows the replaced rate and the added sentence", () => {
     const parts = diffWords(V1, V2).filter((p) => p.type !== "same");

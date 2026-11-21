@@ -201,9 +201,19 @@ export function finalizeReview(
       `${dropped} thing${dropped === 1 ? "" : "s"} the model reported could not be found word for word in the ad and ${dropped === 1 ? "was" : "were"} discarded.`,
     );
   }
-  if (missedByModel.length > 0) {
+  // A claim that runs across a line break can never be credited: a finding
+  // must quote within one line to count. Say that, and keep "did not report"
+  // for a claim the model could have reported and did not.
+  const wrapped = missedByModel.filter((q) => q.includes("\n"));
+  const unreported = missedByModel.filter((q) => !q.includes("\n"));
+  if (unreported.length > 0) {
     reasons.push(
-      `The model did not report ${missedByModel.length === 1 ? "a claim" : `${missedByModel.length} claims`} the code check found (${missedByModel.map((q) => `"${q}"`).join(", ")}).`,
+      `The model did not report ${unreported.length === 1 ? "a claim" : `${unreported.length} claims`} the code check found (${unreported.map((q) => `"${q}"`).join(", ")}).`,
+    );
+  }
+  if (wrapped.length > 0) {
+    reasons.push(
+      `${wrapped.length === 1 ? "A claim" : `${wrapped.length} claims`} the code check found ${wrapped.length === 1 ? "runs" : "run"} across a line break (${wrapped.map((q) => `"${q.replace(/\s+/g, " ")}"`).join(", ")}), so it could not be confirmed that the model reported ${wrapped.length === 1 ? "it" : "them"}.`,
     );
   }
   // Copy that talks to the reviewer or to an AI, answered with nothing at all,
